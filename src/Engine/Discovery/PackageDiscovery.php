@@ -131,12 +131,17 @@ final class PackageDiscovery
             ? $data['extra']['webkernel']['branch']
             : $this->defaultBranch;
 
+        $type = is_string($data['type'] ?? null) && $data['type'] !== ''
+            ? $data['type']
+            : 'unknown';
+
         return new PackageDefinition(
             $packageName,
             $packageDir,
             $relativePath,
             $splitRepoUrl,
-            $branch
+            $branch,
+            $type
         );
     }
 }

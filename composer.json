@@ -1,12 +1,13 @@
 {
     "name": "webkernel/x-monorepo",
     "description": "Monorepo split orchestration: package discovery, git subtree splitting, changelog generation, and CLI commands.",
-    "type": "library",
+    "type": "webkernel-devtool",
     "license": "EPL-2.0",
     "require": {
         "php": ">=8.4",
+        "webkernel/standard-lifecycle": ">=0.1.0",
         "webkernel/standard-git": "*",
-        "composer/semver": ">5.0.5",
+        "composer/semver": "*",
         "symfony/console": "^6.0|^7.0"
     },
     "autoload": {

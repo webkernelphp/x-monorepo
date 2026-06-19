@@ -30,6 +30,8 @@ use Webkernel\StdGit\StdGit;
 use Webkernel\XMonorepo\Commands\DiscoverCommand;
 use Webkernel\XMonorepo\Commands\SplitCommand;
 use Webkernel\XMonorepo\Commands\StatusCommand;
+use Webkernel\XMonorepo\Commands\StatsCommand;
+
 use Webkernel\XMonorepo\XMonorepo;
 
 $root = function_exists('webapp_path') ? webapp_path() : getcwd();
@@ -56,5 +58,6 @@ $app = new Application('x-monorepo', '1.0.0');
 $app->add(new DiscoverCommand($xMonorepo));
 $app->add(new SplitCommand($xMonorepo));
 $app->add(new StatusCommand($xMonorepo));
+$app->add(new StatsCommand($xMonorepo));
 
 exit($app->run());
