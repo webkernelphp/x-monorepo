@@ -7,7 +7,7 @@ return [
     | The version tag to apply when splitting and tagging sub-repositories.
     | Can be overridden at runtime via the --tag CLI option.
     */
-    'tag' => env('XMONOREPO_TAG', ''),
+    'tag' => '',
 
     /*
     |--------------------------------------------------------------------------
@@ -16,8 +16,8 @@ return [
     | Used when committing the "pre-tag" commit if no identity is configured
     | in the repository's .git/config.
     */
-    'git_name'  => env('XMONOREPO_GIT_NAME',  'Webkernel Release Bot'),
-    'git_email' => env('XMONOREPO_GIT_EMAIL', 'releases@webkernel.io'),
+    'git_name'  => 'Webkernel Release Bot',
+    'git_email' => 'releases@webkernel.io',
 
     /*
     |--------------------------------------------------------------------------
@@ -25,7 +25,7 @@ return [
     |--------------------------------------------------------------------------
     | Absolute path to the root of the monorepo (where .git lives).
     */
-    'monorepo_root' => env('XMONOREPO_ROOT', webapp_path()),
+    'monorepo_root' => webapp_path(),
 
     /*
     |--------------------------------------------------------------------------
@@ -34,7 +34,7 @@ return [
     | Path, relative to monorepo_root, where sub-packages live.
     | Each sub-package must have a composer.json with extra.webkernel.package_repo.
     */
-    'packages_dir' => env('XMONOREPO_PACKAGES_DIR', 'packages'),
+    'packages_dir' => 'packages',
 
     /*
     |--------------------------------------------------------------------------
@@ -43,7 +43,7 @@ return [
     | Path (absolute or relative to monorepo_root) of the JSON file used to
     | store resumable split operation state.
     */
-    'state_file' => env('XMONOREPO_STATE_FILE', 'storage/x-monorepo-state.json'),
+    'state_file' => 'storage/x-monorepo-state.json',
 
     /*
     |--------------------------------------------------------------------------
@@ -51,7 +51,7 @@ return [
     |--------------------------------------------------------------------------
     | Maximum seconds a single git sub-process may run before being killed.
     */
-    'process_timeout' => (int) env('XMONOREPO_TIMEOUT', 600),
+    'process_timeout' => 600,
 
     /*
     |--------------------------------------------------------------------------
@@ -62,14 +62,14 @@ return [
     | - https: always convert git@github.com:owner/repo.git to HTTPS
     | - ssh: use the package_repo URL unchanged
     */
-    'push_url_mode' => env('XMONOREPO_PUSH_URL_MODE', 'auto'),
+    'push_url_mode' => 'auto',
 
     /*
     |--------------------------------------------------------------------------
     | Default branch
     |--------------------------------------------------------------------------
     */
-    'default_branch' => env('XMONOREPO_DEFAULT_BRANCH', 'main'),
+    'default_branch' => 'main',
 
     /*
     |--------------------------------------------------------------------------

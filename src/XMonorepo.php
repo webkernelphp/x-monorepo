@@ -175,15 +175,8 @@ final class XMonorepo
     public function createSplitEngine(): SplitEngine
     {
         $config       = $this->resolvedConfig();
-        $stateFilePath = $config->getString('state_file', 'storage/x-monorepo-state.json');
-
-        if (!str_starts_with($stateFilePath, '/')) {
-            $stateFilePath = $this->requireMonorepoRoot() . DIRECTORY_SEPARATOR . $stateFilePath;
-        }
-
-        $stateDir      = dirname($stateFilePath);
-        $stateFilename = basename($stateFilePath);
-        $stateStore    = $this->git->createStateStore($stateDir, $stateFilename);
+        $stateFilePath = $this->resolvePathFromConfig($config, $config->getString('state_file', 'storage/x-monorepo-state.json'));
+        $stateStore = $this->git->createStateStore(dirname($stateFilePath), basename($stateFilePath));
 
         return new SplitEngine(
             $this->git,
@@ -199,11 +192,7 @@ final class XMonorepo
     public function createStateManager(): StateManager
     {
         $config       = $this->resolvedConfig();
-        $stateFilePath = $config->getString('state_file', 'storage/x-monorepo-state.json');
-
-        if (!str_starts_with($stateFilePath, '/')) {
-            $stateFilePath = $this->requireMonorepoRoot() . DIRECTORY_SEPARATOR . $stateFilePath;
-        }
+        $stateFilePath = $this->resolvePathFromConfig($config, $config->getString('state_file', 'storage/x-monorepo-state.json'));
 
         $stateStore = $this->git->createStateStore(dirname($stateFilePath), basename($stateFilePath));
         return new StateManager($stateStore);
@@ -234,7 +223,22 @@ final class XMonorepo
 
     private function resolvedConfig(): ConfigLoader
     {
-        return $this->config ?? new ConfigLoader([]);
+        if ($this->config === null) {
+            throw new XMonorepoException(
+                'x-monorepo config has not been loaded. Call withConfig() with a project x-monorepo.php file.'
+            );
+        }
+
+        return $this->config;
+    }
+
+    private function resolvePathFromConfig(ConfigLoader $config, string $path): string
+    {
+        if (str_starts_with($path, '/')) {
+            return $path;
+        }
+
+        return ($config->getBaseDirectory() ?? $this->requireMonorepoRoot()) . DIRECTORY_SEPARATOR . $path;
     }
 
     private function buildDiscovery(string $packagesPath, ConfigLoader $config): PackageDiscovery

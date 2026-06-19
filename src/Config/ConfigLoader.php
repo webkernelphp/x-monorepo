@@ -15,6 +15,7 @@ final class ConfigLoader
 {
     /** @var array<string, mixed> */
     private readonly array $config;
+    private readonly ?string $path;
 
     /**
      * @param  string|array<string, mixed> $source  Path to PHP config file or a config array.
@@ -24,26 +25,40 @@ final class ConfigLoader
     {
         if (is_array($source)) {
             $this->config = $source;
+            $this->path = null;
             return;
         }
 
-        if (!file_exists($source)) {
+        $path = realpath($source);
+
+        if ($path === false || !file_exists($path)) {
             throw new ConfigException("Config file not found: '$source'.");
         }
 
-        $loaded = require $source;
+        $loaded = require $path;
 
         if (!is_array($loaded)) {
-            throw new ConfigException("Config file '$source' must return an array.");
+            throw new ConfigException("Config file '$path' must return an array.");
         }
 
         $this->config = $loaded;
+        $this->path = $path;
     }
 
     /** @return array<string, mixed> */
     public function all(): array
     {
         return $this->config;
+    }
+
+    public function getPath(): ?string
+    {
+        return $this->path;
+    }
+
+    public function getBaseDirectory(): ?string
+    {
+        return $this->path !== null ? dirname($this->path) : null;
     }
 
     public function get(string $key, mixed $default = null): mixed

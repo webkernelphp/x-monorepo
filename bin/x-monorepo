@@ -30,24 +30,27 @@ use Webkernel\StdGit\StdGit;
 use Webkernel\XMonorepo\Commands\DiscoverCommand;
 use Webkernel\XMonorepo\Commands\SplitCommand;
 use Webkernel\XMonorepo\Commands\StatusCommand;
-use Webkernel\XMonorepo\Config\ConfigLoader;
 use Webkernel\XMonorepo\XMonorepo;
 
-// Load config from the nearest x-monorepo.php config file.
-$configPath = null;
-foreach ([getcwd() . '/config/x-monorepo.php', __DIR__ . '/../config/x-monorepo.php'] as $candidate) {
-    if (file_exists($candidate)) {
-        $configPath = $candidate;
-        break;
-    }
+$root = function_exists('webapp_path') ? webapp_path() : getcwd();
+$configPath = rtrim($root, '/\\') . '/x-monorepo.php';
+
+if (!file_exists($configPath)) {
+    fwrite(STDERR, "Required x-monorepo config not found: {$configPath}\n");
+    fwrite(STDERR, "Create this project config explicitly; package defaults are not used.\n");
+    exit(1);
+}
+
+$config = require $configPath;
+
+if (!is_array($config)) {
+    fwrite(STDERR, "x-monorepo config must return an array: {$configPath}\n");
+    exit(1);
 }
 
 $xMonorepo = (new XMonorepo(new StdGit()))
-    ->dotGitRoot(getcwd());
-
-if ($configPath !== null) {
-    $xMonorepo = $xMonorepo->withConfig($configPath);
-}
+    ->withConfig($configPath)
+    ->dotGitRoot((string) ($config['monorepo_root'] ?? $root));
 
 $app = new Application('x-monorepo', '1.0.0');
 $app->add(new DiscoverCommand($xMonorepo));
