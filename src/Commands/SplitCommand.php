@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
-
 namespace Webkernel\XMonorepo\Commands;
 
+use Composer\Semver\VersionParser;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -17,9 +17,11 @@ use Webkernel\XMonorepo\XMonorepo;
 final class SplitCommand extends Command
 {
     private \DateTime $startTime;
+    private readonly VersionParser $parser;
 
     public function __construct(private readonly XMonorepo $xMonorepo)
     {
+        $this->parser = new VersionParser();
         parent::__construct('split');
     }
 
@@ -77,12 +79,28 @@ final class SplitCommand extends Command
         }
 
         if ($tag === '' && $input->isInteractive() && !$dryRun) {
-            $answer = $this->getHelper('question')->ask(
-                $input,
-                $output,
-                new Question('Tag to create and push? <comment>[empty = no tag]</comment> ', '')
-            );
-            $tag = is_string($answer) ? trim($answer) : '';
+            $questionHelper = $this->getHelper('question');
+
+            while (true) {
+                $answer = $questionHelper->ask(
+                    $input,
+                    $output,
+                    new Question('Tag to create and push? <comment>[empty = no tag]</comment> ', '')
+                );
+
+                $tag = is_string($answer) ? trim($answer) : '';
+
+                if ($tag === '') {
+                    break;
+                }
+
+                try {
+                    $this->parser->normalize($tag);
+                    break;
+                } catch (\UnexpectedValueException $e) {
+                    $output->writeln('<error>Invalid SemVer format. Please try again (e.g., 1.0.0, v2.1.0-beta).</error>');
+                }
+            }
         }
 
         $output->writeln(['', ' <bg=blue;fg=white> WEBKERNEL MONOREPO SPLIT ENGINE </>', ' <fg=gray>==================================</>', '']);

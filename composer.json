@@ -6,6 +6,7 @@
     "require": {
         "php": ">=8.4",
         "webkernel/standard-git": "*",
+        "composer/semver": ">5.0.5",
         "symfony/console": "^6.0|^7.0"
     },
     "autoload": {
