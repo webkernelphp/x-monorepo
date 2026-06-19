@@ -30,7 +30,7 @@ final class PackageJobEntry
             OperationStatus::Pending,
             [
                 'package_name'   => $packageName,
-                'split_repo_url' => $splitRepoUrl,
+                'package_repo_url' => $splitRepoUrl,
                 'branch'         => $branch,
                 'tag'            => $tag,
             ],
@@ -63,7 +63,7 @@ final class PackageJobEntry
 
     public function getSplitRepoUrl(): string
     {
-        return (string) ($this->state->getPayload()['split_repo_url'] ?? '');
+        return (string) ($this->state->getPayload()['package_repo_url'] ?? '');
     }
 
     public function getBranch(): string

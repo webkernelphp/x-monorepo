@@ -40,7 +40,7 @@ final class DiscoverCommand extends Command
             $data = array_map(static fn ($p) => [
                 'name'          => $p->getName(),
                 'relative_path' => $p->getRelativePath(),
-                'split_repo'    => $p->getSplitRepoUrl(),
+                'package_repo'    => $p->getSplitRepoUrl(),
                 'branch'        => $p->getDefaultBranch(),
             ], $packages);
 

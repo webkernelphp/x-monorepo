@@ -8,7 +8,7 @@ use Webkernel\XMonorepo\Exceptions\DiscoveryException;
  * Scans a packages directory and returns all sub-packages eligible for splitting.
  *
  * Eligibility: the package has a composer.json that declares
- * extra.webkernel.split_repo with a non-empty remote URL.
+ * extra.webkernel.package_repo with a non-empty remote URL.
  */
 final class PackageDiscovery
 {
@@ -72,7 +72,7 @@ final class PackageDiscovery
 
     /**
      * Attempt to parse a composer.json and produce a PackageDefinition.
-     * Returns null if the package is not eligible (missing split_repo, excluded, etc.).
+     * Returns null if the package is not eligible (missing package_repo, excluded, etc.).
      */
     private function tryBuildDefinition(string $packageDir): ?PackageDefinition
     {
@@ -95,7 +95,7 @@ final class PackageDiscovery
             return null;
         }
 
-        $splitRepoUrl = $data['extra']['webkernel']['split_repo'] ?? null;
+        $splitRepoUrl = $data['extra']['webkernel']['package_repo'] ?? null;
 
         if (!is_string($splitRepoUrl) || $splitRepoUrl === '') {
             return null;

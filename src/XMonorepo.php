@@ -17,7 +17,7 @@ use Webkernel\XMonorepo\Exceptions\XMonorepoException;
  * Typical usage:
  *
  *   $xMonorepo = (new XMonorepo(new StdGit($runner)))
- *       ->dotGitRoot(application_path())
+ *       ->dotGitRoot(webapp_path())
  *       ->connect(username: $username, repo: $repo)
  *       ->ensureIfCommitted(
  *           ifNotCommit:      "Pre Tag $tag commit",
@@ -139,15 +139,13 @@ final class XMonorepo
             $stateManager,
             $this->buildChangelogWriter($config),
             $root,
-            $config->getString('push_safety_url', 'git@disabled.invalid:disabled/disabled.git'),
-            $makeSplitReposRo,
             $config->getString('git_name', 'Webkernel Release Bot'),
             $config->getString('git_email', 'releases@webkernel.io'),
             $config->getString('push_url_mode', 'auto')
         );
 
         foreach ($packages as $package) {
-            $engine->split($package, $tag, $output);
+            $engine->split($package, $tag, false, $output);
         }
 
         return $this;
@@ -192,8 +190,6 @@ final class XMonorepo
             new StateManager($stateStore),
             $this->buildChangelogWriter($config),
             $this->requireMonorepoRoot(),
-            $config->getString('push_safety_url', 'git@disabled.invalid:disabled/disabled.git'),
-            true,
             $config->getString('git_name', 'Webkernel Release Bot'),
             $config->getString('git_email', 'releases@webkernel.io'),
             $config->getString('push_url_mode', 'auto')

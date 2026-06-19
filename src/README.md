@@ -7,7 +7,7 @@ Monorepo split orchestration built on top of [webkernel/standard-git](../standar
 
 ## What it does
 
-- **Discovers** sub-packages by scanning for `composer.json` files that declare `extra.webkernel.split_repo`.
+- **Discovers** sub-packages by scanning for `composer.json` files that declare `extra.webkernel.package_repo`.
 - **Splits** each package's history into its own repository using `git subtree split`.
 - **Pushes** the split history and version tags to each package's split repository.
 - **Tracks** progress in a JSON state file so interrupted runs can be resumed.
@@ -28,7 +28,7 @@ A package is eligible for splitting when its `composer.json` declares:
     "name": "vendor/my-package",
     "extra": {
         "webkernel": {
-            "split_repo": "git@github.com:third_party/my-package.git",
+            "package_repo": "git@github.com:third_party/my-package.git",
             "branch": "main"
         }
     }
@@ -39,7 +39,7 @@ A package is eligible for splitting when its `composer.json` declares:
 
 ```php
 $xMonorepo = (new \Webkernel\XMonorepo\XMonorepo(new \Webkernel\StdGit\StdGit($runner)))
-    ->dotGitRoot(application_path())
+    ->dotGitRoot(webapp_path())
     ->connect(username: $username, repo: $repo)
     ->ensureIfCommitted(
         ifNotCommit:      "Pre Tag $tag commit",

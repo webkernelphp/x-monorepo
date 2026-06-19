@@ -2,33 +2,14 @@
 
 namespace Webkernel\XMonorepo\Engine;
 
-use Webkernel\StdGit\Repository\GitRepository;
 use Webkernel\StdGit\Exceptions\ProcessException;
+use Webkernel\StdGit\Repository\GitRepository;
 use Webkernel\StdGit\StdGit;
 use Webkernel\XMonorepo\Engine\Discovery\PackageDefinition;
 use Webkernel\XMonorepo\Engine\State\PackageJobEntry;
 use Webkernel\XMonorepo\Engine\State\StateManager;
 use Webkernel\XMonorepo\Exceptions\SplitException;
 
-/**
- * Orchestrates the split/sync workflow for a single package repository.
- *
- * Design contract
- * ───────────────
- * The split is a SYNC operation. Each run snapshots the current package
- * directory into a fresh, single-commit repo and force-pushes it to the
- * split remote. There is intentionally no shared history with the monorepo.
- *
- * Package .git directories are ephemeral — they are wiped before every run
- * and cleaned up after. The remote is the canonical history store. This
- * prevents the monorepo from treating packages as nested repositories.
- *
- * Idempotency
- * ───────────
- * Tagged mode   → tag is the key. If state shows "completed" for pkg+tag, skip.
- * Snapshot mode → monorepo HEAD is the key. If state records that we already
- *                 pushed this exact HEAD for this package, skip.
- */
 final class SplitEngine
 {
     public function __construct(
@@ -36,180 +17,87 @@ final class SplitEngine
         private readonly StateManager    $stateManager,
         private readonly ChangelogWriter $changelogWriter,
         private readonly string          $monorepoPath,
-        private readonly string          $pushSafetyUrl = 'git@disabled.invalid:disabled/disabled.git',
-        private readonly bool            $makeReadOnly  = true,
-        private readonly string          $gitName       = 'Webkernel Release Bot',
-        private readonly string          $gitEmail      = 'releases@webkernel.io',
-        private readonly string          $pushUrlMode   = 'auto'
+        private readonly string          $gitName     = 'Webkernel Release Bot',
+        private readonly string          $gitEmail    = 'releases@webkernel.io',
+        private readonly string          $pushUrlMode = 'auto'
     ) {
         if (!in_array($this->pushUrlMode, ['auto', 'https', 'ssh'], true)) {
             throw new \InvalidArgumentException("Unsupported push URL mode '{$this->pushUrlMode}'.");
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Public phase API
-    // ═══════════════════════════════════════════════════════════════════════
+    public function remoteExists(PackageDefinition $package): bool
+    {
+        return $this->git->isRemoteUrlReadable($this->resolvePushUrl($package->getSplitRepoUrl()));
+    }
 
     /**
-     * Phase 1 — Wipe any leftover .git, init a fresh repo, stage everything,
-     * optionally write a changelog, then always commit (--allow-empty so HEAD
-     * is guaranteed to exist even when no files changed).
-     *
-     * Returns early (as "completed") in snapshot mode when the monorepo HEAD
-     * has not changed since the last successful push for this package.
-     *
+     * @param  (callable(string $type, string $chunk): void)|null $output
      * @throws SplitException
      */
-    public function prepare(PackageDefinition $package, string $tag): PackageJobEntry
-    {
+    public function split(
+        PackageDefinition $package,
+        string $tag,
+        bool $writeChangelog = false,
+        ?callable $output = null
+    ): PackageJobEntry {
         $entry = $this->loadOrCreateEntry($package, $tag);
 
         if ($entry->getStatus()->value === 'completed') {
             return $entry;
         }
 
-        // Snapshot idempotency: nothing changed since last push → nothing to do.
         if ($tag === '' && $this->isAlreadySyncedToCurrentHead($entry)) {
             return $this->stateManager->markCompleted($entry);
         }
 
         $entry = $this->stateManager->markInProgress($entry);
+        $tempPath = $this->createTempDirectory($package);
 
         try {
-            // Wipe any leftover ephemeral .git from a previous run before re-init.
-            // This guarantees we always start from a clean single-commit repo.
-            $this->cleanupPackageRepository($package);
+            $repo = $this->cloneRemote($package, $tempPath);
+            $this->configureIdentity($repo);
+            $this->checkoutBranch($repo, $package->getDefaultBranch());
 
-            $packageRepo = $this->git->init($package->getAbsolutePath());
-            $this->configureIdentity($packageRepo);
+            $this->replaceWorkingTree($package->getAbsolutePath(), $tempPath);
 
-            // Stage the full current state of the package directory.
-            $packageRepo->addAllChanges();
+            if ($writeChangelog && $tag !== '') {
+                $commits = $this->collectMonorepoCommitsForPackage($package);
+                $this->changelogWriter->write($tempPath, $tag, $commits);
+            }
 
-            // Changelog: only when a real version tag is provided.
+            $repo->addAllChanges();
+
+            if ($repo->hasChanges()) {
+                $repo->commit($tag !== '' ? "release: {$tag}" : 'x-monorepo: sync');
+                $repo->pushCurrentBranch($output);
+            }
+
             if ($tag !== '') {
-                $commits = $this->collectMonorepoCommitsForPackage($package, $tag);
-                $this->changelogWriter->write($package->getAbsolutePath(), $tag, $commits);
-                // Stage the freshly written changelog file.
-                $packageRepo->addAllChanges();
-            }
-
-            // --allow-empty guarantees HEAD exists even when nothing is staged
-            // (e.g. snapshot resync with no file changes). Without this the
-            // subsequent push() fails with "src refspec HEAD does not match any".
-            $label = $tag !== '' ? "release: {$tag}" : 'x-monorepo: sync';
-            $packageRepo->run('commit', '--allow-empty', ['-m' => $label]);
-
-            return $entry; // still in-progress; push() advances it
-        } catch (\Throwable $e) {
-            $message = $this->formatThrowableMessage($e);
-            $this->stateManager->markFailed($entry, $message);
-            throw new SplitException(
-                "Prepare failed for '{$package->getName()}': {$message}", 0, $e
-            );
-        }
-    }
-
-    /**
-     * Phase 2 — Force-push the package repo's HEAD to the split remote.
-     *
-     * @param  (callable(string $type, string $chunk): void)|null $output
-     * @throws SplitException
-     */
-    public function push(PackageDefinition $package, string $tag, ?callable $output = null): PackageJobEntry
-    {
-        $entry = $this->loadOrCreateEntry($package, $tag);
-
-        // Already marked completed by prepare() (snapshot no-op).
-        if ($entry->getStatus()->value === 'completed') {
-            return $entry;
-        }
-
-        try {
-            $branch   = $package->getDefaultBranch();
-            $splitUrl = $package->getSplitRepoUrl();
-            $pushUrl  = $this->resolvePushUrl($splitUrl);
-
-            $packageRepo = $this->git->open($package->getAbsolutePath());
-            $this->configureIdentity($packageRepo);
-
-            if ($this->makeReadOnly) {
-                $packageRepo->configureRemote($splitUrl, $this->pushSafetyUrl, 'origin');
-            }
-
-            $packageRepo->pushToUrl(
-                $pushUrl,
-                "HEAD:refs/heads/{$branch}",
-                ['--force'],
-                $output
-            );
-
-            // Record the monorepo HEAD we just pushed for snapshot idempotency.
-            if ($tag === '') {
-                $this->stateManager->recordSyncedHead(
-                    $entry,
-                    $this->currentMonorepoHead()
+                $this->createTagIfMissing($repo, $tag);
+                $repo->pushToUrl(
+                    $this->resolvePushUrl($package->getSplitRepoUrl()),
+                    "refs/tags/{$tag}:refs/tags/{$tag}",
+                    [],
+                    $output
                 );
             }
 
-            return $entry;
-        } catch (\Throwable $e) {
-            $message = $this->formatThrowableMessage($e);
-            $this->stateManager->markFailed($entry, $message);
-            throw new SplitException(
-                "Push failed for '{$package->getName()}': {$message}", 0, $e
-            );
-        }
-    }
-
-    /**
-     * Phase 3 — Create and push the version tag. Marks the job completed.
-     *
-     * @throws SplitException
-     */
-    public function tag(PackageDefinition $package, string $tag): PackageJobEntry
-    {
-        $entry = $this->loadOrCreateEntry($package, $tag);
-
-        try {
-            $pushUrl     = $this->resolvePushUrl($package->getSplitRepoUrl());
-            $packageRepo = $this->git->open($package->getAbsolutePath());
-
-            $this->createTagIfMissing($packageRepo, $tag);
-
-            $packageRepo->pushToUrl(
-                $pushUrl,
-                "refs/tags/{$tag}:refs/tags/{$tag}",
-                ['--force']
-            );
+            if ($tag === '') {
+                $entry = $this->stateManager->recordSyncedHead($entry, $this->currentMonorepoHead());
+            }
 
             return $this->stateManager->markCompleted($entry);
         } catch (\Throwable $e) {
             $message = $this->formatThrowableMessage($e);
             $this->stateManager->markFailed($entry, $message);
-            throw new SplitException(
-                "Tag failed for '{$package->getName()}': {$message}", 0, $e
-            );
+            throw new SplitException("Split failed for '{$package->getName()}': {$message}", 0, $e);
+        } finally {
+            $this->removeDirectory($tempPath);
+            $this->cleanupPackageRepository($package);
         }
     }
 
-    /**
-     * Mark a package completed without tagging (used when $tag === '').
-     */
-    public function markCompleted(PackageDefinition $package, string $tag): PackageJobEntry
-    {
-        $entry = $this->loadOrCreateEntry($package, $tag);
-        return $this->stateManager->markCompleted($entry);
-    }
-
-    /**
-     * Remove the package's ephemeral .git directory.
-     *
-     * Always safe to call: silently returns if .git does not exist.
-     * Called at the start of prepare() (clean slate) and at the end of the
-     * full split run (prevent monorepo from seeing nested repos).
-     */
     public function cleanupPackageRepository(PackageDefinition $package): void
     {
         $gitPath = rtrim($package->getAbsolutePath(), '/\\') . DIRECTORY_SEPARATOR . '.git';
@@ -224,14 +112,97 @@ final class SplitEngine
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Snapshot idempotency
-    // ═══════════════════════════════════════════════════════════════════════
+    private function cloneRemote(PackageDefinition $package, string $tempPath): GitRepository
+    {
+        return $this->git->cloneRepository(
+            $this->resolvePushUrl($package->getSplitRepoUrl()),
+            $tempPath,
+            ['--origin', 'origin']
+        );
+    }
+
+    private function checkoutBranch(GitRepository $repo, string $branch): void
+    {
+        try {
+            $repo->checkout($branch);
+            return;
+        } catch (ProcessException) {
+            $repo->run('checkout', '-B', $branch);
+        }
+    }
+
+    private function replaceWorkingTree(string $sourcePath, string $targetPath): void
+    {
+        $this->emptyDirectoryExceptGit($targetPath);
+        $this->copyDirectory($sourcePath, $targetPath);
+    }
+
+    private function emptyDirectoryExceptGit(string $path): void
+    {
+        foreach (new \DirectoryIterator($path) as $item) {
+            if ($item->isDot() || $item->getFilename() === '.git') {
+                continue;
+            }
+
+            $item->isDir() && !$item->isLink()
+                ? $this->removeDirectory($item->getPathname())
+                : unlink($item->getPathname());
+        }
+    }
+
+    private function copyDirectory(string $sourcePath, string $targetPath): void
+    {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($sourcePath, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($iterator as $item) {
+            if ($item->getFilename() === '.git' || str_contains($item->getPathname(), DIRECTORY_SEPARATOR . '.git' . DIRECTORY_SEPARATOR)) {
+                continue;
+            }
+
+            $relativePath = substr($item->getPathname(), strlen(rtrim($sourcePath, '/\\')) + 1);
+            $destination = $targetPath . DIRECTORY_SEPARATOR . $relativePath;
+
+            if ($item->isLink()) {
+                symlink(readlink($item->getPathname()), $destination);
+                continue;
+            }
+
+            if ($item->isDir()) {
+                if (!is_dir($destination) && !mkdir($destination, 0777, true)) {
+                    throw new SplitException("Cannot create directory '{$destination}'.");
+                }
+                continue;
+            }
+
+            $parent = dirname($destination);
+            if (!is_dir($parent) && !mkdir($parent, 0777, true)) {
+                throw new SplitException("Cannot create directory '{$parent}'.");
+            }
+
+            if (!copy($item->getPathname(), $destination)) {
+                throw new SplitException("Cannot copy '{$item->getPathname()}' to '{$destination}'.");
+            }
+        }
+    }
+
+    private function createTempDirectory(PackageDefinition $package): string
+    {
+        $safeName = preg_replace('#[^a-z0-9_.-]+#i', '-', $package->getName()) ?: 'package';
+        $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'x-monorepo-' . $safeName . '-' . bin2hex(random_bytes(4));
+
+        if (!mkdir($path, 0777, true)) {
+            throw new SplitException("Cannot create temporary split directory '{$path}'.");
+        }
+
+        return $path;
+    }
 
     private function isAlreadySyncedToCurrentHead(PackageJobEntry $entry): bool
     {
-        $syncedHead = $entry->getOperationState()->getPayload()['synced_head'] ?? null;
-        return $syncedHead === $this->currentMonorepoHead();
+        return ($entry->getOperationState()->getPayload()['synced_head'] ?? null) === $this->currentMonorepoHead();
     }
 
     private function currentMonorepoHead(): string
@@ -239,28 +210,16 @@ final class SplitEngine
         return $this->git->open($this->monorepoPath)->getLastCommitId()->toString();
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Changelog helpers
-    // ═══════════════════════════════════════════════════════════════════════
-
     /**
-     * Collect monorepo commits that touched this package's subdirectory,
-     * scoped between the previous tag and HEAD (or all history if first release).
-     *
      * @return \Webkernel\StdGit\Objects\Commit[]
      */
-    private function collectMonorepoCommitsForPackage(
-        PackageDefinition $package,
-        string $tag
-    ): array {
-        $monorepoRepo   = $this->git->open($this->monorepoPath);
-        $packageRelPath = $package->getRelativePath();
-        $rangeStart     = $this->findPreviousTagOnMonorepo($monorepoRepo);
-        $range          = $rangeStart !== null ? "{$rangeStart}..HEAD" : 'HEAD';
+    private function collectMonorepoCommitsForPackage(PackageDefinition $package): array
+    {
+        $monorepoRepo = $this->git->open($this->monorepoPath);
 
         try {
             $logResult = $monorepoRepo->runArgs([
-                'log', $range, '--pretty=format:%H', '--', $packageRelPath,
+                'log', 'HEAD', '--pretty=format:%H', '--', $this->pathRelativeToMonorepo($package->getAbsolutePath()),
             ]);
         } catch (ProcessException) {
             return [];
@@ -273,34 +232,29 @@ final class SplitEngine
             if ($line === '') {
                 continue;
             }
+
             try {
                 $commits[] = $monorepoRepo->getCommit($line);
             } catch (\Throwable) {
-                // Skip unparseable commits rather than aborting.
             }
         }
 
         return $commits;
     }
 
-    private function findPreviousTagOnMonorepo(GitRepository $monorepoRepo): ?string
+    private function pathRelativeToMonorepo(string $path): string
     {
-        try {
-            $result = $monorepoRepo->runArgs(['describe', '--tags', '--abbrev=0', 'HEAD^']);
-            $prev   = trim($result->getStdoutAsString());
-            return $prev !== '' ? $prev : null;
-        } catch (ProcessException) {
-            return null; // first release or no previous tag
-        }
-    }
+        $root = rtrim(realpath($this->monorepoPath) ?: $this->monorepoPath, '/\\') . DIRECTORY_SEPARATOR;
+        $absolute = realpath($path) ?: $path;
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Internal helpers
-    // ═══════════════════════════════════════════════════════════════════════
+        return str_starts_with($absolute, $root)
+            ? substr($absolute, strlen($root))
+            : $path;
+    }
 
     private function configureIdentity(GitRepository $repository): void
     {
-        $repository->run('config', '--local', 'user.name',  $this->gitName);
+        $repository->run('config', '--local', 'user.name', $this->gitName);
         $repository->run('config', '--local', 'user.email', $this->gitEmail);
     }
 
@@ -315,15 +269,8 @@ final class SplitEngine
 
     private function loadOrCreateEntry(PackageDefinition $package, string $tag): PackageJobEntry
     {
-        $monorepoRepo = $this->git->open($this->monorepoPath);
-        $currentHead  = $monorepoRepo->getLastCommitId()->toString();
-
-        // In snapshot mode the job key is per-HEAD so each new monorepo commit
-        // gets its own state entry and old ones are preserved for auditing.
-        $jobTag = $tag !== ''
-            ? $tag
-            : 'snapshot-' . substr($currentHead, 0, 12);
-
+        $currentHead = $this->currentMonorepoHead();
+        $jobTag = $tag !== '' ? $tag : 'snapshot-' . substr($currentHead, 0, 12);
         $existing = $this->stateManager->load($package->getName(), $jobTag);
 
         if ($existing !== null) {
@@ -378,7 +325,6 @@ final class SplitEngine
                     return str_starts_with($url, 'https://');
                 }
             } catch (ProcessException) {
-                continue;
             }
         }
 
@@ -425,6 +371,10 @@ final class SplitEngine
 
     private function removeDirectory(string $path): void
     {
+        if (!is_dir($path)) {
+            return;
+        }
+
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST

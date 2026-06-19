@@ -10,6 +10,7 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use Webkernel\StdGit\Processors\CommandBuilder;
 use Webkernel\XMonorepo\Engine\Discovery\PackageDefinition;
+use Webkernel\XMonorepo\Engine\SplitEngine;
 use Webkernel\XMonorepo\Exceptions\SplitException;
 use Webkernel\XMonorepo\XMonorepo;
 
@@ -26,233 +27,253 @@ final class SplitCommand extends Command
     {
         $this
             ->setDescription('Split eligible packages and push them to their split repositories.')
-            ->addOption('tag',     't', InputOption::VALUE_REQUIRED, 'Version tag to apply.')
-            ->addOption('package', 'p', InputOption::VALUE_REQUIRED, 'Limit to a single package name.')
-            ->addOption('dry-run', null, InputOption::VALUE_NONE,    'Discover and plan without pushing.');
+            ->addOption('tag',       't', InputOption::VALUE_REQUIRED, 'Version tag to apply.')
+            ->addOption('package',   'p', InputOption::VALUE_REQUIRED, 'Limit to a single package name.')
+            ->addOption('changelog', null, InputOption::VALUE_NONE, 'Write package changelogs.')
+            ->addOption('dry-run',   null, InputOption::VALUE_NONE, 'Discover and validate without pushing.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->startTime = new \DateTime();
 
-        $tag           = (string) ($input->getOption('tag') ?? $this->xMonorepo->getConfig()->getString('tag', ''));
+        $tag = (string) ($input->getOption('tag') ?? $this->xMonorepo->getConfig()->getString('tag', ''));
         $filterPackage = $input->getOption('package');
-        $dryRun        = (bool) $input->getOption('dry-run');
+        $dryRun = (bool) $input->getOption('dry-run');
+        $changelogConfig = $this->xMonorepo->getConfig()->getArray('changelog');
+        $writeChangelog = (bool) ($changelogConfig['enabled'] ?? false) || (bool) $input->getOption('changelog');
 
-        // ── Discovery ────────────────────────────────────────────────────────
-        $packages = $this->xMonorepo->createDiscovery()->discover();
-
-        if ($filterPackage !== null) {
-            $packages = array_values(array_filter(
-                $packages, static fn ($p) => $p->getName() === $filterPackage
-            ));
-            if ($packages === []) {
-                $output->writeln("<error>Package '$filterPackage' not found.</error>");
-                return Command::FAILURE;
-            }
-        }
-
+        $packages = $this->discoverPackages($filterPackage, $output);
         if ($packages === []) {
-            $output->writeln('No eligible packages found.');
             return Command::SUCCESS;
         }
 
-        // ── Tag prompt ───────────────────────────────────────────────────────
+        $engine = $this->xMonorepo->createSplitEngine();
+        register_shutdown_function(function () use ($engine, $packages): void {
+            foreach ($packages as $package) {
+                $engine->cleanupPackageRepository($package);
+            }
+        });
+
+        if (!$dryRun && !$this->handleMonorepoSync($input, $output)) {
+            return Command::FAILURE;
+        }
+
+        $packages = $this->filterMissingRemotes($input, $output, $engine, $packages, $dryRun);
+        if ($packages === []) {
+            $output->writeln('  <comment>No package left to split.</comment>');
+            return Command::SUCCESS;
+        }
+
         if ($tag === '' && $input->isInteractive() && !$dryRun) {
             $answer = $this->getHelper('question')->ask(
-                $input, $output,
+                $input,
+                $output,
                 new Question('Tag to create and push? <comment>[empty = no tag]</comment> ', '')
             );
             $tag = is_string($answer) ? trim($answer) : '';
         }
 
-        // ── Header ───────────────────────────────────────────────────────────
         $output->writeln(['', ' <bg=blue;fg=white> WEBKERNEL MONOREPO SPLIT ENGINE </>', ' <fg=gray>==================================</>', '']);
-        $this->renderSummary($output, $packages, $tag, $dryRun);
+        $this->renderSummary($output, $packages, $tag, $dryRun, $writeChangelog);
 
-        // ── Confirmation ─────────────────────────────────────────────────────
         if (!$dryRun && $input->isInteractive()) {
             $confirmed = $this->getHelper('question')->ask(
-                $input, $output,
-                new ConfirmationQuestion(
-                    sprintf("  <question>Ready to split %d packages? [y/N]</question> ", count($packages)),
-                    false
-                )
+                $input,
+                $output,
+                new ConfirmationQuestion(sprintf("  <question>Split %d packages? [y/N]</question> ", count($packages)), false)
             );
+
             if (!$confirmed) {
                 $output->writeln("\n  <comment>Aborted by user.</comment>");
                 return Command::SUCCESS;
             }
         }
 
-        $output->writeln('');
-        $engine = $this->xMonorepo->createSplitEngine();
-        $total  = count($packages);
         $failed = [];
+        $pushed = 0;
 
-        // ════════════════════════════════════════════════════════════════════
-        // PHASE 1/3 — Prepare
-        // ════════════════════════════════════════════════════════════════════
-        $output->writeln(sprintf(
-            ' [%s] <bg=cyan;fg=black> PHASE 1/3 </> Preparing versions and commits...',
+        $output->writeln("\n" . sprintf(
+            ' [%s] <bg=cyan;fg=black> SPLIT </> Cloning remotes, syncing files, pushing normally...',
             $this->ts()
         ));
-
-        $skipped = [];
 
         foreach ($packages as $i => $package) {
-            $output->write(sprintf(
-                '  [%s] <info>PREP</info>  %-40s [%d/%d] ',
-                $this->ts(), $package->getName(), $i + 1, $total
-            ));
-
-            if ($dryRun) {
-                $output->writeln('<fg=gray>skipped</>');
-                continue;
-            }
-
-            try {
-                $entry = $engine->prepare($package, $tag);
-                if ($entry->getStatus()->value === 'completed') {
-                    $output->writeln('<fg=gray>up-to-date</>');
-                    $skipped[$package->getName()] = true;
-                } else {
-                    $output->writeln('<info>OK</info>');
-                }
-            } catch (SplitException $e) {
-                $output->writeln('<error>FAILED</error>');
-                $output->writeln(sprintf('         <fg=red>%s</>', $e->getMessage()));
-                $failed[$package->getName()] = true;
-            }
-        }
-
-        $activePackages = $this->excludeKeys($packages, $failed + $skipped);
-
-        // ════════════════════════════════════════════════════════════════════
-        // PHASE 2/3 — Push
-        // ════════════════════════════════════════════════════════════════════
-        $output->writeln("\n" . sprintf(
-            ' [%s] <bg=cyan;fg=black> PHASE 2/3 </> Pushing to remotes...',
-            $this->ts()
-        ));
-
-        $pushed = [];
-
-        foreach ($activePackages as $i => $package) {
             $output->writeln(sprintf(
-                '  [%s] <info>PUSH</info>  %-40s [%d/%d]',
-                $this->ts(), $package->getName(), $i + 1, count($activePackages)
+                '  [%s] <info>SYNC</info>  %-40s [%d/%d]',
+                $this->ts(),
+                $package->getName(),
+                $i + 1,
+                count($packages)
             ));
             $output->writeln(sprintf('       <fg=blue>-> %s</>', $package->getSplitRepoUrl()));
 
             if ($dryRun) {
                 $output->writeln('       <fg=gray>skipped</>');
-                $pushed[] = $package;
                 continue;
             }
 
             try {
-                $engine->push(
-                    $package,
-                    $tag,
-                    static function (string $type, string $chunk) use ($output): void {
-                        foreach (explode("\n", trim(CommandBuilder::maskCredentials($chunk))) as $line) {
-                            if ($line !== '') {
-                                $output->writeln(sprintf('          <fg=gray>%s</>', $line));
-                            }
-                        }
-                    }
-                );
-                $output->writeln('       <info>OK</info>');
-                $pushed[] = $package;
+                $entry = $engine->split($package, $tag, $writeChangelog, $this->gitOutput($output));
+                $output->writeln($entry->getStatus()->value === 'completed' ? '       <info>OK</info>' : '       <fg=gray>skipped</>');
+                $pushed++;
             } catch (SplitException $e) {
                 $output->writeln(sprintf('       <error>FAILED: %s</error>', $e->getMessage()));
                 $failed[$package->getName()] = true;
             }
         }
 
-        $activePackages = $this->excludeKeys($activePackages, $failed);
-
-        // ════════════════════════════════════════════════════════════════════
-        // PHASE 3/3 — Tag
-        // ════════════════════════════════════════════════════════════════════
-        $output->writeln("\n" . sprintf(
-            ' [%s] <bg=cyan;fg=black> PHASE 3/3 </> Tagging releases...',
-            $this->ts()
-        ));
-
-        foreach ($activePackages as $i => $package) {
-            $output->write(sprintf(
-                '  [%s] <info>TAG</info>   %-40s [%d/%d] <fg=gray>(%s)</> ',
-                $this->ts(), $package->getName(), $i + 1, count($activePackages),
-                $tag !== '' ? $tag : 'no tag'
-            ));
-
-            if ($dryRun || $tag === '') {
-                $output->writeln('<fg=gray>' . ($dryRun ? 'skipped' : 'skipped (no tag)') . '</>');
-                if (!$dryRun) {
-                    $engine->markCompleted($package, $tag);
-                }
-                continue;
-            }
-
-            try {
-                $engine->tag($package, $tag);
-                $output->writeln('<info>OK</info>');
-            } catch (SplitException $e) {
-                $output->writeln('<error>FAILED</error>');
-                $output->writeln(sprintf('         <fg=red>%s</>', $e->getMessage()));
-                $failed[$package->getName()] = true;
-            }
-        }
-
-        // ── Cleanup (always, even on partial failure) ─────────────────────
-        if (!$dryRun) {
-            foreach ($pushed as $package) {
-                $engine->cleanupPackageRepository($package);
-            }
-            if ($pushed !== []) {
-                $output->writeln("\n  <fg=gray>Cleaned package .git directories.</>");
-            }
-        }
-
-        // ── Footer ───────────────────────────────────────────────────────────
-        $failCount    = count($failed);
-        $skippedCount = count($skipped);
+        $failCount = count($failed);
 
         $output->writeln([
             '',
             $failCount === 0
-                ? sprintf(
-                    ' [%s] <bg=green;fg=black> SUCCESS </> %d pushed%s%s in %s.',
-                    $this->ts(),
-                    count($pushed),
-                    $tag !== '' ? ", tagged as {$tag}" : '',
-                    $skippedCount > 0 ? ", {$skippedCount} already up-to-date" : '',
-                    $this->elapsed()
-                )
-                : sprintf(
-                    ' [%s] <bg=red;fg=white> PARTIAL </> %d of %d packages failed. Elapsed: %s.',
-                    $this->ts(), $failCount, $total, $this->elapsed()
-                ),
+                ? sprintf(' [%s] <bg=green;fg=black> SUCCESS </> %d package(s) processed in %s.', $this->ts(), $pushed, $this->elapsed())
+                : sprintf(' [%s] <bg=red;fg=white> PARTIAL </> %d of %d packages failed. Elapsed: %s.', $this->ts(), $failCount, count($packages), $this->elapsed()),
             '',
         ]);
 
         return $failCount === 0 ? Command::SUCCESS : Command::FAILURE;
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    /**
+     * @return PackageDefinition[]
+     */
+    private function discoverPackages(mixed $filterPackage, OutputInterface $output): array
+    {
+        $packages = $this->xMonorepo->createDiscovery()->discover();
+
+        if ($filterPackage !== null) {
+            $packages = array_values(array_filter(
+                $packages,
+                static fn (PackageDefinition $package) => $package->getName() === $filterPackage
+            ));
+
+            if ($packages === []) {
+                $output->writeln("<error>Package '$filterPackage' not found.</error>");
+            }
+        }
+
+        if ($packages === []) {
+            $output->writeln('No eligible packages found.');
+        }
+
+        return $packages;
+    }
+
+    private function handleMonorepoSync(InputInterface $input, OutputInterface $output): bool
+    {
+        $repo = $this->xMonorepo->getGit()->open($this->xMonorepo->getMonorepoRoot());
+
+        if ($repo->isSyncedWithUpstream()) {
+            return true;
+        }
+
+        if (!$input->isInteractive()) {
+            $output->writeln('<error>Monorepo is not synced. Commit/push it before running split non-interactively.</error>');
+            return false;
+        }
+
+        if ($repo->hasChanges()) {
+            $commit = $this->getHelper('question')->ask(
+                $input,
+                $output,
+                new ConfirmationQuestion('  <question>Monorepo has uncommitted changes. Commit them before split? [Y/n]</question> ', true)
+            );
+
+            if (!$commit) {
+                return (bool) $this->getHelper('question')->ask(
+                    $input,
+                    $output,
+                    new ConfirmationQuestion('  <question>Continue split with uncommitted monorepo changes? [y/N]</question> ', false)
+                );
+            }
+
+            $message = $this->getHelper('question')->ask(
+                $input,
+                $output,
+                new Question('  Commit message <comment>[x-monorepo: pre-split]</comment> ', 'x-monorepo: pre-split')
+            );
+
+            $repo->addAllChanges()->commit(is_string($message) && trim($message) !== '' ? trim($message) : 'x-monorepo: pre-split');
+        }
+
+        if (!$repo->hasUnpushedCommits()) {
+            return true;
+        }
+
+        $push = $this->getHelper('question')->ask(
+            $input,
+            $output,
+            new ConfirmationQuestion('  <question>Monorepo has unpushed commits. Push current branch first? [Y/n]</question> ', true)
+        );
+
+        if (!$push) {
+            return true;
+        }
+
+        $output->writeln('  <info>Pushing monorepo current branch...</info>');
+        $repo->pushCurrentBranch($this->gitOutput($output));
+
+        return true;
+    }
+
+    /**
+     * @param  PackageDefinition[] $packages
+     * @return PackageDefinition[]
+     */
+    private function filterMissingRemotes(
+        InputInterface $input,
+        OutputInterface $output,
+        SplitEngine $engine,
+        array $packages,
+        bool $dryRun
+    ): array {
+        while (true) {
+            $missing = [];
+
+            foreach ($packages as $package) {
+                if (!$engine->remoteExists($package)) {
+                    $missing[$package->getName()] = $package;
+                }
+            }
+
+            if ($missing === []) {
+                return $packages;
+            }
+
+            $output->writeln("\n  <comment>Missing or inaccessible split repositories:</comment>");
+            foreach ($missing as $package) {
+                $output->writeln(sprintf('  - %-38s -> %s', $package->getName(), $package->getSplitRepoUrl()));
+            }
+
+            if ($dryRun || !$input->isInteractive()) {
+                return $this->excludeKeys($packages, array_fill_keys(array_keys($missing), true));
+            }
+
+            $choice = $this->getHelper('question')->ask(
+                $input,
+                $output,
+                new Question('  <question>Action? [R retry / d do not include]</question> ', 'R')
+            );
+
+            if (strtolower((string) $choice) === 'd') {
+                return $this->excludeKeys($packages, array_fill_keys(array_keys($missing), true));
+            }
+        }
+    }
 
     /** @param PackageDefinition[] $packages */
-    private function renderSummary(OutputInterface $output, array $packages, string $tag, bool $dryRun): void
+    private function renderSummary(OutputInterface $output, array $packages, string $tag, bool $dryRun, bool $writeChangelog): void
     {
         $repo = $this->xMonorepo->getGit()->open($this->xMonorepo->getMonorepoRoot());
         $head = substr($repo->getLastCommitId()->toString(), 0, 12);
 
-        $output->writeln(sprintf('  <info>HEAD</info>     %s (%d commits)', $head, $repo->getCommitCount()));
-        $output->writeln(sprintf('  <info>TAG</info>      %s', $tag !== '' ? $tag : '<fg=gray>none (snapshot mode)</>'));
-        $output->writeln(sprintf('  <info>MODE</info>     %s', $dryRun ? '<comment>dry-run</comment>' : 'push'));
-        $output->writeln(sprintf('  <info>COUNT</info>    %d packages', count($packages)));
+        $output->writeln(sprintf('  <info>HEAD</info>       %s (%d commits)', $head, $repo->getCommitCount()));
+        $output->writeln(sprintf('  <info>TAG</info>        %s', $tag !== '' ? $tag : '<fg=gray>none (snapshot mode)</>'));
+        $output->writeln(sprintf('  <info>MODE</info>       %s', $dryRun ? '<comment>dry-run</comment>' : 'push'));
+        $output->writeln(sprintf('  <info>CHANGELOG</info>  %s', $writeChangelog ? 'yes' : '<fg=gray>no</>'));
+        $output->writeln(sprintf('  <info>COUNT</info>      %d packages', count($packages)));
         $output->writeln('');
 
         foreach ($packages as $package) {
@@ -268,16 +289,27 @@ final class SplitCommand extends Command
     }
 
     /**
-     * @param PackageDefinition[]  $packages
-     * @param array<string, true>  $keys
+     * @param PackageDefinition[] $packages
+     * @param array<string, true> $keys
      * @return PackageDefinition[]
      */
     private function excludeKeys(array $packages, array $keys): array
     {
         return array_values(array_filter(
             $packages,
-            static fn ($p) => !isset($keys[$p->getName()])
+            static fn (PackageDefinition $package) => !isset($keys[$package->getName()])
         ));
+    }
+
+    private function gitOutput(OutputInterface $output): callable
+    {
+        return static function (string $type, string $chunk) use ($output): void {
+            foreach (explode("\n", trim(CommandBuilder::maskCredentials($chunk))) as $line) {
+                if ($line !== '') {
+                    $output->writeln(sprintf('          <fg=gray>%s</>', $line));
+                }
+            }
+        };
     }
 
     private function ts(): string

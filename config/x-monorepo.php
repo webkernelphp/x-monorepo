@@ -1,7 +1,5 @@
 <?php declare(strict_types=1);
-
 return [
-
     /*
     |--------------------------------------------------------------------------
     | Tag
@@ -27,14 +25,14 @@ return [
     |--------------------------------------------------------------------------
     | Absolute path to the root of the monorepo (where .git lives).
     */
-    'monorepo_root' => env('XMONOREPO_ROOT', application_path()),
+    'monorepo_root' => env('XMONOREPO_ROOT', webapp_path()),
 
     /*
     |--------------------------------------------------------------------------
     | Packages directory
     |--------------------------------------------------------------------------
     | Path, relative to monorepo_root, where sub-packages live.
-    | Each sub-package must have a composer.json with extra.webkernel.split_repo.
+    | Each sub-package must have a composer.json with extra.webkernel.package_repo.
     */
     'packages_dir' => env('XMONOREPO_PACKAGES_DIR', 'packages'),
 
@@ -57,20 +55,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Push safety dummy URL
-    |--------------------------------------------------------------------------
-    | Set as the push URL for read-only remotes to prevent accidental pushes.
-    */
-    'push_safety_url' => 'git@disabled.invalid:disabled/disabled.git',
-
-    /*
-    |--------------------------------------------------------------------------
     | Push URL mode
     |--------------------------------------------------------------------------
-    | Controls how GitHub SSH split_repo URLs are pushed.
+    | Controls how GitHub SSH package_repo URLs are pushed.
     | - auto: match the monorepo origin protocol, falling back to SSH
     | - https: always convert git@github.com:owner/repo.git to HTTPS
-    | - ssh: use the split_repo URL unchanged
+    | - ssh: use the package_repo URL unchanged
     */
     'push_url_mode' => env('XMONOREPO_PUSH_URL_MODE', 'auto'),
 
@@ -87,7 +77,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'changelog' => [
-        'enabled'   => true,
+        'enabled'   => false,
         'filename'  => 'CHANGELOG.md',
         'header'    => '# Changelog',
         'date_format' => 'Y-m-d',
@@ -110,5 +100,4 @@ return [
     | Exact package names (as declared in composer.json "name") to skip.
     */
     'excluded_packages' => [],
-
 ];

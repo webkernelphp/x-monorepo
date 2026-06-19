@@ -4,7 +4,7 @@
     "type": "library",
     "license": "EPL-2.0",
     "require": {
-        "php": ">=8.1",
+        "php": ">=8.4",
         "webkernel/standard-git": "*",
         "symfony/console": "^6.0|^7.0"
     },
@@ -24,7 +24,7 @@
             ]
         },
         "webkernel": {
-            "split_repo": "git@github.com:webkernelphp/x-monorepo.git",
+            "package_repo": "git@github.com:webkernelphp/x-monorepo.git",
             "prefix": "x-monorepo"
         }
     }
