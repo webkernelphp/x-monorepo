@@ -44,7 +44,7 @@ final class SplitCommand extends Command
   ██╔██╗ ██║╚██╔╝██║██║   ██║██║╚██╗██║██║   ██║██╔══██╗██╔══╝  ██╔═══╝ ██║   ██║
  ██╔╝ ██╗██║ ╚═╝ ██║╚██████╔╝██║ ╚████║╚██████╔╝██║  ██║███████╗██║     ╚██████╔╝
  ╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝      ╚═════╝
- <gray>Split, sync, and release a monorepo directly from the codebase.</gray>');
+ <comment>Split, sync, and release a monorepo directly from the codebase.</comment>');
         $output->writeln(sprintf(' <info>[%s]</info> Checking current state...', $this->ts()));
         $output->writeln('');
 
