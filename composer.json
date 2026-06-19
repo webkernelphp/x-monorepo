@@ -1,0 +1,31 @@
+{
+    "name": "webkernel/x-monorepo",
+    "description": "Monorepo split orchestration: package discovery, git subtree splitting, changelog generation, and CLI commands.",
+    "type": "library",
+    "license": "EPL-2.0",
+    "require": {
+        "php": ">=8.1",
+        "webkernel/standard-git": "*",
+        "symfony/console": "^6.0|^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webkernel\\XMonorepo\\": "src/"
+        }
+    },
+    "bin": [
+        "bin/x-monorepo"
+    ],
+    "minimum-stability": "stable",
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Webkernel\\SystemPanelProvider"
+            ]
+        },
+        "webkernel": {
+            "split_repo": "git@github.com:webkernelphp/x-monorepo.git",
+            "prefix": "x-monorepo"
+        }
+    }
+}

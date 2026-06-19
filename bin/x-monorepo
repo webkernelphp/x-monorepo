@@ -1,0 +1,57 @@
+#!/usr/bin/env php
+<?php declare(strict_types=1);
+
+// Locate the autoloader — support both standalone and monorepo-embedded installs.
+$autoloadCandidates = [
+    __DIR__ . '/../autoload.php',
+    __DIR__ . '/../../autoload.php',
+    __DIR__ . '/../third_party/autoload.php',
+    __DIR__ . '/../../third_party/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+    __DIR__ . '/../../../third_party/autoload.php',
+];
+
+$autoloaded = false;
+foreach ($autoloadCandidates as $candidate) {
+    if (file_exists($candidate)) {
+        require $candidate;
+        $autoloaded = true;
+        break;
+    }
+}
+
+if (!$autoloaded) {
+    fwrite(STDERR, "Composer autoloader not found. Run 'composer install' first.\n");
+    exit(1);
+}
+
+use Symfony\Component\Console\Application;
+use Webkernel\StdGit\StdGit;
+use Webkernel\XMonorepo\Commands\DiscoverCommand;
+use Webkernel\XMonorepo\Commands\SplitCommand;
+use Webkernel\XMonorepo\Commands\StatusCommand;
+use Webkernel\XMonorepo\Config\ConfigLoader;
+use Webkernel\XMonorepo\XMonorepo;
+
+// Load config from the nearest x-monorepo.php config file.
+$configPath = null;
+foreach ([getcwd() . '/config/x-monorepo.php', __DIR__ . '/../config/x-monorepo.php'] as $candidate) {
+    if (file_exists($candidate)) {
+        $configPath = $candidate;
+        break;
+    }
+}
+
+$xMonorepo = (new XMonorepo(new StdGit()))
+    ->dotGitRoot(getcwd());
+
+if ($configPath !== null) {
+    $xMonorepo = $xMonorepo->withConfig($configPath);
+}
+
+$app = new Application('x-monorepo', '1.0.0');
+$app->add(new DiscoverCommand($xMonorepo));
+$app->add(new SplitCommand($xMonorepo));
+$app->add(new StatusCommand($xMonorepo));
+
+exit($app->run());
