@@ -91,10 +91,24 @@ final class StatsCommand extends Command
 
         // Distribution Section
         $output->writeln(' <info>Package Type Distribution:</info>');
-        foreach ($typeDistribution as $type => $count) {
-            $percentage = ($count / $totalPackages) * 180 / 1.8; // Safe percentage calculation
-            $output->writeln(sprintf('  - <comment>%-15s</comment> : %d package(s) (%d%%)', ucfirst($type), $count, $percentage));
+
+        // Find the maximum length for dynamic padding alignment
+        $maxLength = 0;
+        foreach (array_keys($typeDistribution) as $type) {
+            $maxLength = max($maxLength, strlen(ucfirst($type)));
         }
+        $padding = $maxLength + 1;
+
+        // Render distribution list
+        foreach ($typeDistribution as $type => $count) {
+            // Clean, direct percentage calculation
+            $percentage = ($count / $totalPackages) * 100;
+
+            // Format percentage to a clean 2 decimal places (or use %d for whole numbers)
+            $formattedPercent = sprintf('%6.2f', $percentage);
+            $paddedType       = sprintf('%-' . $padding . 's', ucfirst($type));
+
+            $output->writeln(" {$formattedPercent} % <comment>{$paddedType}</comment>   <fg=gray>....</fg=gray> {$count} package(s)");        }
         $output->writeln('');
 
         // Packages Table Section
