@@ -39,7 +39,7 @@ final class StatusCommand extends Command
         }
 
         if ($input->getOption('json')) {
-            $data = array_map(static fn ($e) => [
+            $data = array_map(static fn ($e): array => [
                 'id'      => $e->getId(),
                 'package' => $e->getPackageName(),
                 'tag'     => $e->getTag(),

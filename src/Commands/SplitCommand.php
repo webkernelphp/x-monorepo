@@ -97,7 +97,7 @@ final class SplitCommand extends Command
                 try {
                     $this->parser->normalize($tag);
                     break;
-                } catch (\UnexpectedValueException $e) {
+                } catch (\UnexpectedValueException) {
                     $output->writeln('<error>Invalid SemVer format. Please try again (e.g., 1.0.0, v2.1.0-beta).</error>');
                 }
             }
@@ -175,7 +175,7 @@ final class SplitCommand extends Command
         if ($filterPackage !== null) {
             $packages = array_values(array_filter(
                 $packages,
-                static fn (PackageDefinition $package) => $package->getName() === $filterPackage
+                static fn (PackageDefinition $package): bool => $package->getName() === $filterPackage
             ));
 
             if ($packages === []) {
@@ -326,7 +326,7 @@ final class SplitCommand extends Command
     {
         return array_values(array_filter(
             $packages,
-            static fn (PackageDefinition $package) => !isset($keys[$package->getName()])
+            static fn (PackageDefinition $package): bool => !isset($keys[$package->getName()])
         ));
     }
 

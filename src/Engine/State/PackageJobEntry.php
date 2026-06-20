@@ -10,11 +10,11 @@ use Webkernel\StdGit\Operations\OperationStatus;
  *
  * Keeps XMonorepo-specific field names stable without re-implementing persistence.
  */
-final class PackageJobEntry
+final readonly class PackageJobEntry
 {
-    private const TYPE = 'package_split';
+    private const string TYPE = 'package_split';
 
-    private function __construct(private readonly OperationState $state) {}
+    private function __construct(private OperationState $state) {}
 
     public static function create(
         string $packageName,

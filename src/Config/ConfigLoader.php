@@ -11,11 +11,11 @@ use Webkernel\XMonorepo\Exceptions\ConfigException;
  * or a pre-built array (useful in tests or framework integrations that
  * inject config directly).
  */
-final class ConfigLoader
+final readonly class ConfigLoader
 {
     /** @var array<string, mixed> */
-    private readonly array $config;
-    private readonly ?string $path;
+    private array $config;
+    private ?string $path;
 
     /**
      * @param  string|array<string, mixed> $source  Path to PHP config file or a config array.
@@ -117,7 +117,7 @@ final class ConfigLoader
             throw new ConfigException("Config key '$key' must be an array.");
         }
 
-        return array_values(array_map('strval', $value));
+        return array_values(array_map(strval(...), $value));
     }
 
     /** @return array<string, mixed> */

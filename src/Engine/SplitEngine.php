@@ -10,16 +10,16 @@ use Webkernel\XMonorepo\Engine\State\PackageJobEntry;
 use Webkernel\XMonorepo\Engine\State\StateManager;
 use Webkernel\XMonorepo\Exceptions\SplitException;
 
-final class SplitEngine
+final readonly class SplitEngine
 {
     public function __construct(
-        private readonly StdGit          $git,
-        private readonly StateManager    $stateManager,
-        private readonly ChangelogWriter $changelogWriter,
-        private readonly string          $monorepoPath,
-        private readonly string          $gitName     = 'Webkernel Release Bot',
-        private readonly string          $gitEmail    = 'releases@webkernel.io',
-        private readonly string          $pushUrlMode = 'auto'
+        private StdGit          $git,
+        private StateManager    $stateManager,
+        private ChangelogWriter $changelogWriter,
+        private string          $monorepoPath,
+        private string          $gitName     = 'Webkernel Release Bot',
+        private string          $gitEmail    = 'releases@webkernel.io',
+        private string          $pushUrlMode = 'auto'
     ) {
         if (!in_array($this->pushUrlMode, ['auto', 'https', 'ssh'], true)) {
             throw new \InvalidArgumentException("Unsupported push URL mode '{$this->pushUrlMode}'.");
@@ -140,10 +140,12 @@ final class SplitEngine
     private function emptyDirectoryExceptGit(string $path): void
     {
         foreach (new \DirectoryIterator($path) as $item) {
-            if ($item->isDot() || $item->getFilename() === '.git') {
+            if ($item->isDot()) {
                 continue;
             }
-
+            if ($item->getFilename() === '.git') {
+                continue;
+            }
             $item->isDir() && !$item->isLink()
                 ? $this->removeDirectory($item->getPathname())
                 : unlink($item->getPathname());
@@ -158,11 +160,13 @@ final class SplitEngine
         );
 
         foreach ($iterator as $item) {
-            if ($item->getFilename() === '.git' || str_contains($item->getPathname(), DIRECTORY_SEPARATOR . '.git' . DIRECTORY_SEPARATOR)) {
+            if ($item->getFilename() === '.git') {
                 continue;
             }
-
-            $relativePath = substr($item->getPathname(), strlen(rtrim($sourcePath, '/\\')) + 1);
+            if (str_contains((string) $item->getPathname(), DIRECTORY_SEPARATOR . '.git' . DIRECTORY_SEPARATOR)) {
+                continue;
+            }
+            $relativePath = substr((string) $item->getPathname(), strlen(rtrim($sourcePath, '/\\')) + 1);
             $destination = $targetPath . DIRECTORY_SEPARATOR . $relativePath;
 
             if ($item->isLink()) {
@@ -260,7 +264,7 @@ final class SplitEngine
 
     private function createTagIfMissing(GitRepository $repository, string $tag): void
     {
-        $existing = array_map(static fn ($t) => $t->getName(), $repository->getTags());
+        $existing = array_map(static fn (\Webkernel\StdGit\Refs\Tag $t): string => $t->getName(), $repository->getTags());
 
         if (!in_array($tag, $existing, true)) {
             $repository->createTag($tag);
@@ -273,7 +277,7 @@ final class SplitEngine
         $jobTag = $tag !== '' ? $tag : 'snapshot-' . substr($currentHead, 0, 12);
         $existing = $this->stateManager->load($package->getName(), $jobTag);
 
-        if ($existing !== null) {
+        if ($existing instanceof \Webkernel\XMonorepo\Engine\State\PackageJobEntry) {
             return $existing;
         }
 
@@ -360,7 +364,7 @@ final class SplitEngine
 
     private function formatThrowableMessage(\Throwable $e): string
     {
-        if (!$e instanceof ProcessException || $e->getRunnerResult() === null) {
+        if (!$e instanceof ProcessException || !$e->getRunnerResult() instanceof \Webkernel\StdGit\Processors\RunnerResult) {
             return $e->getMessage();
         }
 

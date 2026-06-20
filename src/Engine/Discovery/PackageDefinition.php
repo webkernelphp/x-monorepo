@@ -3,7 +3,7 @@ namespace Webkernel\XMonorepo\Engine\Discovery;
 /**
  * Immutable description of a discovered sub-package that is eligible for splitting.
  */
-final class PackageDefinition
+final readonly class PackageDefinition
 {
     /**
      * @param string $name           Composer package name (e.g. "webkernel/my-package").
@@ -14,12 +14,12 @@ final class PackageDefinition
      * @param string $type           Package type (e.g. "component", "engine", "bundle").
      */
     public function __construct(
-        private readonly string $name,
-        private readonly string $absolutePath,
-        private readonly string $relativePath,
-        private readonly string $splitRepoUrl,
-        private readonly string $defaultBranch,
-        private readonly string $type = 'unknown',
+        private string $name,
+        private string $absolutePath,
+        private string $relativePath,
+        private string $splitRepoUrl,
+        private string $defaultBranch,
+        private string $type = 'unknown',
     ) {}
     public function getName(): string
     {

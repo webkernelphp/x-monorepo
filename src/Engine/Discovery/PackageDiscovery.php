@@ -10,7 +10,7 @@ use Webkernel\XMonorepo\Exceptions\DiscoveryException;
  * Eligibility: the package has a composer.json that declares
  * extra.webkernel.package_repo with a non-empty remote URL.
  */
-final class PackageDiscovery
+final readonly class PackageDiscovery
 {
     /**
      * @param string   $packagesRootPath Absolute path to the packages directory.
@@ -19,10 +19,10 @@ final class PackageDiscovery
      * @param string[] $excludedPackages Composer package names to exclude by exact match.
      */
     public function __construct(
-        private readonly string $packagesRootPath,
-        private readonly string $defaultBranch = 'main',
-        private readonly array $allowedPrefixes = [],
-        private readonly array $excludedPackages = []
+        private string $packagesRootPath,
+        private string $defaultBranch = 'main',
+        private array $allowedPrefixes = [],
+        private array $excludedPackages = []
     ) {}
 
     /**
@@ -57,7 +57,7 @@ final class PackageDiscovery
             $packageDir = $item->getPath();
             $definition = $this->tryBuildDefinition($packageDir);
 
-            if ($definition === null) {
+            if (!$definition instanceof \Webkernel\XMonorepo\Engine\Discovery\PackageDefinition) {
                 continue;
             }
 
@@ -65,7 +65,7 @@ final class PackageDiscovery
         }
 
         // Sort by name for stable ordering.
-        usort($packages, static fn (PackageDefinition $a, PackageDefinition $b) => strcmp($a->getName(), $b->getName()));
+        usort($packages, static fn (PackageDefinition $a, PackageDefinition $b): int => strcmp($a->getName(), $b->getName()));
 
         return $packages;
     }

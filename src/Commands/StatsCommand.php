@@ -62,7 +62,7 @@ final class StatsCommand extends Command
             $filterType = strtolower((string) $filterType);
             $processedPackages = array_values(array_filter(
                 $processedPackages,
-                static fn (array $p) => strtolower($p['type']) === $filterType
+                static fn (array $p): bool => strtolower((string) $p['type']) === $filterType
             ));
         }
 

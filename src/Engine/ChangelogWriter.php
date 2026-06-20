@@ -8,12 +8,12 @@ use Webkernel\XMonorepo\Exceptions\XMonorepoException;
 /**
  * Writes or prepends a changelog entry to a CHANGELOG.md file.
  */
-final class ChangelogWriter
+final readonly class ChangelogWriter
 {
     public function __construct(
-        private readonly string $header     = '# Changelog',
-        private readonly string $dateFormat = 'Y-m-d',
-        private readonly string $filename   = 'CHANGELOG.md'
+        private string $header     = '# Changelog',
+        private string $dateFormat = 'Y-m-d',
+        private string $filename   = 'CHANGELOG.md'
     ) {}
 
     /**

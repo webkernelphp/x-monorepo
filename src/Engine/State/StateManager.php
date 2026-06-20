@@ -9,9 +9,9 @@ use Webkernel\XMonorepo\Exceptions\StateException;
 /**
  * Manages PackageJobEntry lifecycle through the StdGit operation state store.
  */
-final class StateManager
+final readonly class StateManager
 {
-    public function __construct(private readonly IOperationStateStore $store) {}
+    public function __construct(private IOperationStateStore $store) {}
 
     public function initJob(PackageJobEntry $entry): void
     {
@@ -98,14 +98,14 @@ final class StateManager
         }
 
         $entries = array_map(
-            static fn ($s) => PackageJobEntry::fromOperationState($s),
+            PackageJobEntry::fromOperationState(...),
             $states
         );
 
         if ($tag !== null) {
             $entries = array_filter(
                 $entries,
-                static fn (PackageJobEntry $e) => $e->getTag() === $tag
+                static fn (PackageJobEntry $e): bool => $e->getTag() === $tag
             );
         }
 

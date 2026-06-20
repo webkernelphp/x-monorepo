@@ -37,7 +37,7 @@ final class DiscoverCommand extends Command
         }
 
         if ($input->getOption('json')) {
-            $data = array_map(static fn ($p) => [
+            $data = array_map(static fn ($p): array => [
                 'name'          => $p->getName(),
                 'relative_path' => $p->getRelativePath(),
                 'package_repo'    => $p->getSplitRepoUrl(),

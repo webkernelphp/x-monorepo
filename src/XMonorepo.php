@@ -30,8 +30,6 @@ use Webkernel\XMonorepo\Exceptions\XMonorepoException;
 final class XMonorepo
 {
     private ?string $monorepoRoot    = null;
-    private ?string $remoteUsername  = null;
-    private ?string $remoteRepo      = null;
     private ?ConfigLoader $config    = null;
 
     public function __construct(private readonly StdGit $git)
@@ -42,11 +40,8 @@ final class XMonorepo
     // -------------------------------------------------------------------------
     // Fluent configuration chain
     // -------------------------------------------------------------------------
-
     /**
      * Set the absolute path where the monorepo .git directory lives.
-     *
-     * @return static
      */
     public function dotGitRoot(string $path): static
     {
@@ -62,13 +57,9 @@ final class XMonorepo
 
     /**
      * Configure the remote connection credentials/identity used when building authenticated push URLs.
-     *
-     * @return static
      */
-    public function connect(string $username, string $repo): static
+    public function connect(): static
     {
-        $this->remoteUsername = $username;
-        $this->remoteRepo     = $repo;
         return $this;
     }
 
@@ -76,7 +67,6 @@ final class XMonorepo
      * Load configuration from a file or array.
      *
      * @param  string|array<string, mixed> $source
-     * @return static
      */
     public function withConfig(string|array $source): static
     {
@@ -95,7 +85,6 @@ final class XMonorepo
      * @param  string                                                   $splitStateFile   Absolute path to the JSON state file.
      * @param  bool                                                     $makeSplitReposRo When true, push URLs for split remotes are set to a no-op URL.
      * @param  (callable(string $type, string $chunk): void)|null       $output           Live git output callback.
-     * @return static
      * @throws XMonorepoException
      */
     public function ensureIfCommitted(
@@ -116,7 +105,7 @@ final class XMonorepo
 
         // 2. Apply the tag (idempotent: skip if already exists).
         $existingTags = array_map(
-            static fn ($t) => $t->getName(),
+            static fn (\Webkernel\StdGit\Refs\Tag $t): string => $t->getName(),
             $repo->getTags()
         );
 
@@ -223,7 +212,7 @@ final class XMonorepo
 
     private function resolvedConfig(): ConfigLoader
     {
-        if ($this->config === null) {
+        if (!$this->config instanceof \Webkernel\XMonorepo\Config\ConfigLoader) {
             throw new XMonorepoException(
                 'x-monorepo config has not been loaded. Call withConfig() with a project x-monorepo.php file.'
             );
