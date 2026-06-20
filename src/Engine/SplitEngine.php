@@ -57,9 +57,13 @@ final readonly class SplitEngine
         try {
             $repo = $this->cloneRemote($package, $tempPath);
             $this->configureIdentity($repo);
-            $this->checkoutBranch($repo, $package->getDefaultBranch());
 
-            $this->replaceWorkingTree($package->getAbsolutePath(), $tempPath);
+            // Base our local clone on the current state of the remote split repo.
+            // This ensures we are not "en avance" (ahead) on the remote before we make our changes.
+            // We fetch and reset hard to origin/branch so our upcoming commit will be on top of remote's tip.
+            $this->baseOnRemote($repo, $package->getDefaultBranch());
+
+            $this->replaceWorkingTree($repo, $package->getAbsolutePath());
 
             if ($writeChangelog && $tag !== '') {
                 $commits = $this->collectMonorepoCommitsForPackage($package);
@@ -114,10 +118,14 @@ final readonly class SplitEngine
 
     private function cloneRemote(PackageDefinition $package, string $tempPath): GitRepository
     {
+        // Always use shallow clone. We are going to overwrite the working tree anyway.
+        // This dramatically speeds up clones for packages like standard-pix.
+        $extra = ['--origin', 'origin', '--depth=1'];
+
         return $this->git->cloneRepository(
             $this->resolvePushUrl($package->getSplitRepoUrl()),
             $tempPath,
-            ['--origin', 'origin']
+            $extra
         );
     }
 
@@ -131,66 +139,67 @@ final readonly class SplitEngine
         }
     }
 
-    private function replaceWorkingTree(string $sourcePath, string $targetPath): void
+    /**
+     * Make sure our clone of the split repo starts exactly from the remote's current tip.
+     * This way, when we modify the tree and commit, we are building on top of remote,
+     * and a normal push will not overwrite any remote commits.
+     */
+    private function baseOnRemote(GitRepository $repo, string $branch): void
     {
+        try {
+            $repo->run('fetch', '--depth=1', 'origin', $branch);
+            // Reset to exactly what remote has (so we are not ahead)
+            $repo->run('reset', '--hard', 'origin/' . $branch);
+        } catch (ProcessException) {
+            // Branch may not exist on remote yet (first split), or fetch failed.
+            // Fall back to creating the branch locally.
+            $this->checkoutBranch($repo, $branch);
+        }
+    }
+
+    private function replaceWorkingTree(GitRepository $targetRepo, string $sourcePackagePath): void
+    {
+        $targetPath = $targetRepo->getPath();
+
         $this->emptyDirectoryExceptGit($targetPath);
-        $this->copyDirectory($sourcePath, $targetPath);
+
+        $monoGitDir = rtrim($this->monorepoPath, '/\\') . '/.git';
+        $rel = $this->pathRelativeToMonorepo($sourcePackagePath);
+        $strip = ($rel === '' || $rel === '.') ? 0 : substr_count($rel, '/') + 1;
+
+        $targetRepo->extractSubtreeFromGitDir($monoGitDir, 'HEAD', $rel, $strip);
     }
 
     private function emptyDirectoryExceptGit(string $path): void
     {
-        foreach (new \DirectoryIterator($path) as $item) {
-            if ($item->isDot()) {
-                continue;
+        // Use native rm via shell for speed (thousands of files in packages like standard-pix)
+        // instead of slow PHP recursion.
+        $cmd = sprintf('find %s -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +', escapeshellarg($path));
+
+        $process = proc_open($cmd, [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ], $pipes);
+
+        if (is_resource($process)) {
+            fclose($pipes[0]);
+            stream_get_contents($pipes[1]);
+            stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($process);
+        } else {
+            // Fallback to PHP if shell fails
+            foreach (new \DirectoryIterator($path) as $item) {
+                if ($item->isDot()) continue;
+                if ($item->getFilename() === '.git') continue;
+                $item->isDir() && !$item->isLink() ? $this->removeDirectory($item->getPathname()) : unlink($item->getPathname());
             }
-            if ($item->getFilename() === '.git') {
-                continue;
-            }
-            $item->isDir() && !$item->isLink()
-                ? $this->removeDirectory($item->getPathname())
-                : unlink($item->getPathname());
         }
     }
 
-    private function copyDirectory(string $sourcePath, string $targetPath): void
-    {
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($sourcePath, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::SELF_FIRST
-        );
 
-        foreach ($iterator as $item) {
-            if ($item->getFilename() === '.git') {
-                continue;
-            }
-            if (str_contains((string) $item->getPathname(), DIRECTORY_SEPARATOR . '.git' . DIRECTORY_SEPARATOR)) {
-                continue;
-            }
-            $relativePath = substr((string) $item->getPathname(), strlen(rtrim($sourcePath, '/\\')) + 1);
-            $destination = $targetPath . DIRECTORY_SEPARATOR . $relativePath;
-
-            if ($item->isLink()) {
-                symlink(readlink($item->getPathname()), $destination);
-                continue;
-            }
-
-            if ($item->isDir()) {
-                if (!is_dir($destination) && !mkdir($destination, 0777, true)) {
-                    throw new SplitException("Cannot create directory '{$destination}'.");
-                }
-                continue;
-            }
-
-            $parent = dirname($destination);
-            if (!is_dir($parent) && !mkdir($parent, 0777, true)) {
-                throw new SplitException("Cannot create directory '{$parent}'.");
-            }
-
-            if (!copy($item->getPathname(), $destination)) {
-                throw new SplitException("Cannot copy '{$item->getPathname()}' to '{$destination}'.");
-            }
-        }
-    }
 
     private function createTempDirectory(PackageDefinition $package): string
     {
@@ -392,4 +401,5 @@ final readonly class SplitEngine
 
         rmdir($path);
     }
+
 }

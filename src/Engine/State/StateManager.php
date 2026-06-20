@@ -53,7 +53,6 @@ final readonly class StateManager
             'synced_head' => $head,
         ]);
 
-        // Rebuild the OperationState with the updated payload, keeping status.
         $updatedState = $entry->getOperationState()->withStatus(
             $entry->getStatus(),
             $newPayload
@@ -68,6 +67,28 @@ final readonly class StateManager
         }
 
         return PackageJobEntry::fromOperationState($updatedState);
+    }
+
+    /**
+     * Merge additional values into the payload and persist.
+     */
+    public function updatePayload(PackageJobEntry $entry, array $extra): void
+    {
+        $current = $entry->getOperationState()->getPayload();
+        $newPayload = array_merge($current, $extra);
+
+        $updatedState = $entry->getOperationState()->withStatus(
+            $entry->getStatus(),
+            $newPayload
+        );
+
+        try {
+            $this->store->save($updatedState);
+        } catch (\Throwable $e) {
+            throw new StateException(
+                "Cannot update payload for '{$entry->getId()}': {$e->getMessage()}", 0, $e
+            );
+        }
     }
 
     public function load(string $packageName, string $tag): ?PackageJobEntry
