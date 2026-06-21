@@ -6,17 +6,13 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Webkernel\XMonorepo\Engine\Discovery\PackageDiscovery;
-use Webkernel\XMonorepo\XMonorepo;
+use Webkernel\XWebdev\XWebdev;
 
-/**
- * Scans the packages directory and lists all packages eligible for splitting.
- */
-final class DiscoverCommand extends Command
+final class DiscoverCommand extends MonorepoCommand
 {
-    public function __construct(private readonly XMonorepo $xMonorepo)
+    public function __construct(XWebdev $webdev)
     {
-        parent::__construct('discover');
+        parent::__construct($webdev, 'discover');
     }
 
     protected function configure(): void
@@ -28,8 +24,7 @@ final class DiscoverCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $discovery = $this->xMonorepo->createDiscovery();
-        $packages  = $discovery->discover();
+        $packages = $this->xMonorepo()->createDiscovery()->discover();
 
         if ($packages === []) {
             $output->writeln('No eligible packages found.');
@@ -40,7 +35,7 @@ final class DiscoverCommand extends Command
             $data = array_map(static fn ($p): array => [
                 'name'          => $p->getName(),
                 'relative_path' => $p->getRelativePath(),
-                'package_repo'    => $p->getSplitRepoUrl(),
+                'package_repo'  => $p->getSplitRepoUrl(),
                 'branch'        => $p->getDefaultBranch(),
             ], $packages);
 

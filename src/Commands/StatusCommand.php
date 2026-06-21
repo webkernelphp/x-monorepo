@@ -6,16 +6,13 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Webkernel\XMonorepo\XMonorepo;
+use Webkernel\XWebdev\XWebdev;
 
-/**
- * Display the current split operation state for a given tag.
- */
-final class StatusCommand extends Command
+final class StatusCommand extends MonorepoCommand
 {
-    public function __construct(private readonly XMonorepo $xMonorepo)
+    public function __construct(XWebdev $webdev)
     {
-        parent::__construct('status');
+        parent::__construct($webdev, 'status');
     }
 
     protected function configure(): void
@@ -30,8 +27,7 @@ final class StatusCommand extends Command
     {
         $tag = (string) ($input->getOption('tag') ?? '');
 
-        $stateManager = $this->xMonorepo->createStateManager();
-        $entries      = $stateManager->listAll($tag !== '' ? $tag : null);
+        $entries = $this->xMonorepo()->createStateManager()->listAll($tag !== '' ? $tag : null);
 
         if ($entries === []) {
             $output->writeln('No job records found.');
@@ -51,10 +47,9 @@ final class StatusCommand extends Command
         }
 
         foreach ($entries as $entry) {
-            $statusLabel = strtoupper($entry->getStatus()->value);
             $output->writeln(sprintf(
                 '[%s] %s @ %s',
-                $statusLabel,
+                strtoupper($entry->getStatus()->value),
                 $entry->getPackageName(),
                 $entry->getTag()
             ));

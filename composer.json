@@ -6,19 +6,15 @@
     "version": "0.11.3",
     "require": {
         "php": ">=8.4",
-        "webkernel/standard-lifecycle": ">=0.1.0",
+        "webkernel/x-webdev": ">=0.1.0",
         "webkernel/standard-git": "*",
-        "composer/semver": "*",
-        "symfony/console": "^6.0|^7.0"
+        "composer/semver": "*"
     },
     "autoload": {
         "psr-4": {
             "Webkernel\\XMonorepo\\": "src/"
         }
     },
-    "bin": [
-        "bin/x-monorepo"
-    ],
     "minimum-stability": "stable",
     "extra": {
         "laravel": {

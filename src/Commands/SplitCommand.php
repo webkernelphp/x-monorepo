@@ -12,17 +12,17 @@ use Webkernel\StdGit\Processors\CommandBuilder;
 use Webkernel\XMonorepo\Engine\Discovery\PackageDefinition;
 use Webkernel\XMonorepo\Engine\SplitEngine;
 use Webkernel\XMonorepo\Exceptions\SplitException;
-use Webkernel\XMonorepo\XMonorepo;
+use Webkernel\XWebdev\XWebdev;
 
-final class SplitCommand extends Command
+final class SplitCommand extends MonorepoCommand
 {
     private \DateTime $startTime;
     private readonly VersionParser $parser;
 
-    public function __construct(private readonly XMonorepo $xMonorepo)
+    public function __construct(XWebdev $webdev)
     {
         $this->parser = new VersionParser();
-        parent::__construct('split');
+        parent::__construct($webdev, 'split');
     }
 
     protected function configure(): void
@@ -50,10 +50,10 @@ final class SplitCommand extends Command
         $output->writeln(sprintf(' <info>[%s]</info> Checking current state...', $this->ts()));
         $output->writeln('');
 
-        $tag = (string) ($input->getOption('tag') ?? $this->xMonorepo->getConfig()->getString('tag', ''));
+        $tag = (string) ($input->getOption('tag') ?? $this->xMonorepo()->getConfig()->getString('tag', ''));
         $filterPackage = $input->getOption('package');
         $dryRun = (bool) $input->getOption('dry-run');
-        $changelogConfig = $this->xMonorepo->getConfig()->getArray('changelog');
+        $changelogConfig = $this->xMonorepo()->getConfig()->getArray('changelog');
         $writeChangelog = (bool) ($changelogConfig['enabled'] ?? false) || (bool) $input->getOption('changelog');
 
         $packages = $this->discoverPackages($filterPackage, $output);
@@ -61,7 +61,7 @@ final class SplitCommand extends Command
             return Command::SUCCESS;
         }
 
-        $engine = $this->xMonorepo->createSplitEngine();
+        $engine = $this->xMonorepo()->createSplitEngine();
         register_shutdown_function(function () use ($engine, $packages): void {
             foreach ($packages as $package) {
                 $engine->cleanupPackageRepository($package);
@@ -170,7 +170,7 @@ final class SplitCommand extends Command
      */
     private function discoverPackages(mixed $filterPackage, OutputInterface $output): array
     {
-        $packages = $this->xMonorepo->createDiscovery()->discover();
+        $packages = $this->xMonorepo()->createDiscovery()->discover();
 
         if ($filterPackage !== null) {
             $packages = array_values(array_filter(
@@ -192,7 +192,7 @@ final class SplitCommand extends Command
 
     private function handleMonorepoSync(InputInterface $input, OutputInterface $output): bool
     {
-        $repo = $this->xMonorepo->getGit()->open($this->xMonorepo->getMonorepoRoot());
+        $repo = $this->xMonorepo()->getGit()->open($this->xMonorepo()->getMonorepoRoot());
 
         if ($repo->isSyncedWithUpstream()) {
             return true;
@@ -295,7 +295,7 @@ final class SplitCommand extends Command
     /** @param PackageDefinition[] $packages */
     private function renderSummary(OutputInterface $output, array $packages, string $tag, bool $dryRun, bool $writeChangelog): void
     {
-        $repo = $this->xMonorepo->getGit()->open($this->xMonorepo->getMonorepoRoot());
+        $repo = $this->xMonorepo()->getGit()->open($this->xMonorepo()->getMonorepoRoot());
         $head = substr($repo->getLastCommitId()->toString(), 0, 12);
 
         $output->writeln(sprintf('  <info>HEAD</info>       %s (%d commits)', $head, $repo->getCommitCount()));

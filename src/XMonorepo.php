@@ -4,7 +4,7 @@ namespace Webkernel\XMonorepo;
 
 use Webkernel\StdGit\Operations\IOperationStateStore;
 use Webkernel\StdGit\StdGit;
-use Webkernel\XMonorepo\Config\ConfigLoader;
+use Webkernel\XWebdev\Config\ConfigLoader;
 use Webkernel\XMonorepo\Engine\ChangelogWriter;
 use Webkernel\XMonorepo\Engine\Discovery\PackageDiscovery;
 use Webkernel\XMonorepo\Engine\SplitEngine;
@@ -212,7 +212,7 @@ final class XMonorepo
 
     private function resolvedConfig(): ConfigLoader
     {
-        if (!$this->config instanceof \Webkernel\XMonorepo\Config\ConfigLoader) {
+        if (!$this->config instanceof ConfigLoader) {
             throw new XMonorepoException(
                 'x-monorepo config has not been loaded. Call withConfig() with a project x-monorepo.php file.'
             );
