@@ -3,11 +3,12 @@
     "description": "Monorepo split orchestration: package discovery, git subtree splitting, changelog generation, and CLI commands.",
     "type": "webkernel-devtool",
     "license": "EPL-2.0",
-    "version": "0.11.3",
+    "version": "0.12.0",
     "require": {
         "php": ">=8.4",
-        "webkernel/x-webdev": ">=0.1.0",
-        "webkernel/standard-git": "*",
+        "webkernel/x-webdev": "0.12.0",
+        "webkernel/standard-git": "0.12.0",
+        "webkernel/x-ponytail": "0.12.0",
         "composer/semver": "*"
     },
     "autoload": {
