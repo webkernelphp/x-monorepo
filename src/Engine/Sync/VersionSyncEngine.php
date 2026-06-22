@@ -13,7 +13,6 @@ use Webkernel\XMonorepo\Exceptions\XMonorepoException;
 final readonly class VersionSyncEngine
 {
     public function __construct(
-        private string $packagesRootPath,
         private string $projectRootPath,
         private InternalPackageCatalog $catalog,
         private VersionConstraintResolver $constraints,
@@ -57,15 +56,19 @@ final readonly class VersionSyncEngine
             $this->planVersionField($changes, $composerPath, $record, $data, $options, $syncedVersions);
 
             foreach (['require', 'require-dev'] as $section) {
-                if (!isset($data[$section]) || !is_array($data[$section])) {
+                if (!isset($data[$section])) {
                     continue;
                 }
-
+                if (!is_array($data[$section])) {
+                    continue;
+                }
                 foreach ($data[$section] as $dependency => $constraint) {
-                    if (!is_string($dependency) || !is_string($constraint)) {
+                    if (!is_string($dependency)) {
                         continue;
                     }
-
+                    if (!is_string($constraint)) {
+                        continue;
+                    }
                     if (!isset($catalog[$dependency])) {
                         continue;
                     }
@@ -116,15 +119,19 @@ final readonly class VersionSyncEngine
             $finalConstraints[$rootName] = [];
 
             foreach (['require', 'require-dev'] as $section) {
-                if (!isset($rootData[$section]) || !is_array($rootData[$section])) {
+                if (!isset($rootData[$section])) {
                     continue;
                 }
-
+                if (!is_array($rootData[$section])) {
+                    continue;
+                }
                 foreach ($rootData[$section] as $dependency => $constraint) {
-                    if (!is_string($dependency) || !is_string($constraint)) {
+                    if (!is_string($dependency)) {
                         continue;
                     }
-
+                    if (!is_string($constraint)) {
+                        continue;
+                    }
                     if (!isset($catalog[$dependency])) {
                         continue;
                     }
@@ -289,15 +296,19 @@ final readonly class VersionSyncEngine
             $data = $this->writer->read($composerPath);
 
             foreach (['require', 'require-dev'] as $section) {
-                if (!isset($data[$section]) || !is_array($data[$section])) {
+                if (!isset($data[$section])) {
                     continue;
                 }
-
+                if (!is_array($data[$section])) {
+                    continue;
+                }
                 foreach ($data[$section] as $dependency => $constraint) {
-                    if (!is_string($dependency) || !is_string($constraint)) {
+                    if (!is_string($dependency)) {
                         continue;
                     }
-
+                    if (!is_string($constraint)) {
+                        continue;
+                    }
                     if (!isset($catalog[$dependency], $syncedVersions[$dependency])) {
                         continue;
                     }
@@ -326,15 +337,19 @@ final readonly class VersionSyncEngine
         $rootName = is_string($rootData['name'] ?? null) ? $rootData['name'] : 'root-project';
 
         foreach (['require', 'require-dev'] as $section) {
-            if (!isset($rootData[$section]) || !is_array($rootData[$section])) {
+            if (!isset($rootData[$section])) {
                 continue;
             }
-
+            if (!is_array($rootData[$section])) {
+                continue;
+            }
             foreach ($rootData[$section] as $dependency => $constraint) {
-                if (!is_string($dependency) || !is_string($constraint)) {
+                if (!is_string($dependency)) {
                     continue;
                 }
-
+                if (!is_string($constraint)) {
+                    continue;
+                }
                 if (!isset($catalog[$dependency], $syncedVersions[$dependency])) {
                     continue;
                 }

@@ -113,15 +113,7 @@ final readonly class PackageDiscovery
         );
 
         if ($this->allowedPrefixes !== []) {
-            $allowed = false;
-
-            foreach ($this->allowedPrefixes as $prefix) {
-                if (str_starts_with($relativePath, $prefix)) {
-                    $allowed = true;
-                    break;
-                }
-            }
-
+            $allowed = array_any($this->allowedPrefixes, fn($prefix): bool => str_starts_with($relativePath, (string) $prefix));
             if (!$allowed) {
                 return null;
             }

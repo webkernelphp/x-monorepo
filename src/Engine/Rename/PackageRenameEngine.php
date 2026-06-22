@@ -125,14 +125,18 @@ final readonly class PackageRenameEngine
             $data = $this->writer->read($path);
 
             foreach (['require', 'require-dev'] as $section) {
-                if (!isset($data[$section]) || !is_array($data[$section])) {
+                if (!isset($data[$section])) {
                     continue;
                 }
-
-                if (!isset($data[$section][$oldName]) || !is_string($data[$section][$oldName])) {
+                if (!is_array($data[$section])) {
                     continue;
                 }
-
+                if (!isset($data[$section][$oldName])) {
+                    continue;
+                }
+                if (!is_string($data[$section][$oldName])) {
+                    continue;
+                }
                 $changes[] = new PackageRenameChange(
                     file: $path,
                     field: $section,

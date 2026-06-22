@@ -38,12 +38,14 @@ final class RenamePackageCommand extends MonorepoCommand
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output the plan as JSON.');
     }
 
+    #[\Override]
     protected function needsInput(InputInterface $input): bool
     {
         return trim((string) $input->getArgument('from')) === ''
             || trim((string) $input->getArgument('to')) === '';
     }
 
+    #[\Override]
     protected function showIntro(OutputInterface $output): void
     {
         $output->writeln('');
@@ -265,7 +267,7 @@ final class RenamePackageCommand extends MonorepoCommand
             'old_relative_path'   => $plan->oldRelativePath,
             'new_relative_path'   => $plan->newRelativePath,
             'dry_run'             => $dryRun,
-            'changes'             => array_map(static fn ($change): array => [
+            'changes'             => array_map(static fn (\Webkernel\XMonorepo\Engine\Rename\PackageRenameChange $change): array => [
                 'file'       => $change->file,
                 'field'      => $change->field,
                 'dependency' => $change->dependency,
@@ -338,7 +340,7 @@ final class RenamePackageCommand extends MonorepoCommand
         $normalized = trim(str_replace('\\', '/', $path), '/');
 
         if (str_starts_with($normalized, 'packages/')) {
-            $normalized = substr($normalized, strlen('packages/'));
+            return substr($normalized, strlen('packages/'));
         }
 
         return $normalized;

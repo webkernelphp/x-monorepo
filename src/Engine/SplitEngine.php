@@ -192,8 +192,12 @@ final readonly class SplitEngine
         } else {
             // Fallback to PHP if shell fails
             foreach (new \DirectoryIterator($path) as $item) {
-                if ($item->isDot()) continue;
-                if ($item->getFilename() === '.git') continue;
+                if ($item->isDot()) {
+                    continue;
+                }
+                if ($item->getFilename() === '.git') {
+                    continue;
+                }
                 $item->isDir() && !$item->isLink() ? $this->removeDirectory($item->getPathname()) : unlink($item->getPathname());
             }
         }

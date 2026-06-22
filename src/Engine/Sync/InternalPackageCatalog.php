@@ -43,7 +43,7 @@ final readonly class InternalPackageCatalog
 
             $record = $this->tryParseRecord($item->getPath());
 
-            if ($record === null) {
+            if (!$record instanceof \Webkernel\XMonorepo\Engine\Sync\InternalPackageRecord) {
                 continue;
             }
 

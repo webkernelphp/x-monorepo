@@ -51,12 +51,16 @@ final class SyncVersionsCommand extends MonorepoCommand
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output the plan as JSON.');
     }
 
+    #[\Override]
     protected function needsInput(InputInterface $input): bool
     {
-        return !$this->hasResolvedMode($input)
-            || ($input->isInteractive() && $this->resolvedOperator($input) === null);
+        if (!$this->hasResolvedMode($input)) {
+            return true;
+        }
+        return $input->isInteractive() && !$this->resolvedOperator($input) instanceof \Webkernel\XMonorepo\Engine\Sync\ConstraintOperator;
     }
 
+    #[\Override]
     protected function showIntro(OutputInterface $output): void
     {
         $output->writeln('');
@@ -69,15 +73,15 @@ final class SyncVersionsCommand extends MonorepoCommand
     {
         $helper   = $this->getHelper('question');
         $resolver = new VersionConstraintResolver();
-        $engine   = $this->engine($input);
-        $catalog  = $this->catalog($input);
+        $engine   = $this->engine();
+        $catalog  = $this->catalog();
 
         $this->renderCatalogSummary($output, $catalog);
         $this->renderVersionInventory($output, $catalog);
         $this->renderDivergenceReport($output, $catalog);
 
         // ── Operator ─────────────────────────────────────────────────────────
-        if ($this->resolvedOperator($input) === null) {
+        if (!$this->resolvedOperator($input) instanceof \Webkernel\XMonorepo\Engine\Sync\ConstraintOperator) {
             $sample  = $this->sampleVersionForOperatorPreview($input, $catalog);
             $choices = [];
             foreach (ConstraintOperator::cases() as $op) {
@@ -149,7 +153,7 @@ final class SyncVersionsCommand extends MonorepoCommand
 
         try {
             $options = $this->buildOptions($input);
-            $engine  = $this->engine($input);
+            $engine  = $this->engine();
             $plan    = $engine->plan($options);
 
             if ($input->getOption('json')) {
@@ -211,9 +215,9 @@ final class SyncVersionsCommand extends MonorepoCommand
 
     // ── Engine & catalog (built once, reused) ──────────────────────────────
 
-    private function engine(InputInterface $input): VersionSyncEngine
+    private function engine(): VersionSyncEngine
     {
-        if ($this->engine === null) {
+        if (!$this->engine instanceof \Webkernel\XMonorepo\Engine\Sync\VersionSyncEngine) {
             $monorepo     = $this->xMonorepo();
             $config       = $monorepo->getConfig();
             $root         = $monorepo->getMonorepoRoot();
@@ -230,14 +234,13 @@ final class SyncVersionsCommand extends MonorepoCommand
                 writer:           new ComposerJsonWriter(),
             );
         }
-
         return $this->engine;
     }
 
     /**
      * @return array<string, InternalPackageRecord>
      */
-    private function catalog(InputInterface $input): array
+    private function catalog(): array
     {
         if ($this->catalog === null) {
             $monorepo     = $this->xMonorepo();
@@ -250,7 +253,6 @@ final class SyncVersionsCommand extends MonorepoCommand
 
             $this->catalog = (new InternalPackageCatalog($packagesPath, new PackageModuleClassifier()))->load();
         }
-
         return $this->catalog;
     }
 
@@ -314,7 +316,7 @@ final class SyncVersionsCommand extends MonorepoCommand
             $version = $record->version ?? '(missing)';
             $groups[$version][] = $record;
         }
-        uksort($groups, static fn (string $a, string $b): int => version_compare($a, $b));
+        uksort($groups, version_compare(...));
 
         $output->writeln(' <comment>Who has what</comment>');
         foreach ($groups as $version => $records) {
@@ -337,7 +339,6 @@ final class SyncVersionsCommand extends MonorepoCommand
      */
     private function renderDivergenceReport(OutputInterface $output, array $catalog): void
     {
-        /** @var array<string, list<string>> $byVersion */
         $syncableByVersion = $modulesByVersion = [];
         foreach ($catalog as $record) {
             $v = $record->version ?? '(missing)';
@@ -349,7 +350,7 @@ final class SyncVersionsCommand extends MonorepoCommand
             $output->writeln(sprintf('  Syncable packages are aligned on <info>%s</info>.', array_key_first($syncableByVersion) ?? '(none)'));
         } else {
             $output->writeln('  Syncable packages use <fg=yellow>' . count($syncableByVersion) . ' different versions</>:');
-            uksort($syncableByVersion, static fn (string $a, string $b): int => version_compare($a, $b));
+            uksort($syncableByVersion, version_compare(...));
             foreach ($syncableByVersion as $version => $names) {
                 sort($names);
                 $output->writeln(sprintf('    <info>%s</info> → %s', $version, implode(', ', $names)));
@@ -357,7 +358,7 @@ final class SyncVersionsCommand extends MonorepoCommand
         }
 
         if ($modulesByVersion !== []) {
-            uksort($modulesByVersion, static fn (string $a, string $b): int => version_compare($a, $b));
+            uksort($modulesByVersion, version_compare(...));
             $parts = [];
             foreach ($modulesByVersion as $version => $names) {
                 sort($names);
@@ -425,7 +426,7 @@ final class SyncVersionsCommand extends MonorepoCommand
         }
 
         if ($uniformTarget !== null && $versionChanges !== []) {
-            $behind = array_filter($versionChanges, static fn ($c) => $c->from !== null && version_compare($c->from, $uniformTarget, '<'));
+            $behind = array_filter($versionChanges, static fn ($c): bool => $c->from !== null && version_compare($c->from, $uniformTarget, '<'));
             if ($behind !== []) {
                 $output->writeln(sprintf('    <fg=yellow>%d package(s) currently behind %s</>', count($behind), $uniformTarget));
             }
@@ -458,9 +459,9 @@ final class SyncVersionsCommand extends MonorepoCommand
     private function filterChanges(VersionSyncPlan $plan, ?string $field): array
     {
         if ($field === 'version') {
-            return array_values(array_filter($plan->changes, static fn ($c): bool => $c->field === 'version'));
+            return array_values(array_filter($plan->changes, static fn (\Webkernel\XMonorepo\Engine\Sync\VersionSyncChange $c): bool => $c->field === 'version'));
         }
-        return array_values(array_filter($plan->changes, static fn ($c): bool => $c->field !== 'version'));
+        return array_values(array_filter($plan->changes, static fn (\Webkernel\XMonorepo\Engine\Sync\VersionSyncChange $c): bool => $c->field !== 'version'));
     }
 
     private function countVersionChanges(VersionSyncPlan $plan): int
@@ -566,7 +567,7 @@ final class SyncVersionsCommand extends MonorepoCommand
             'target_version'     => $plan->targetVersion,
             'sample_constraint'  => $plan->sampleConstraint,
             'dry_run'            => $options->dryRun,
-            'changes'            => array_map(static fn ($c): array => [
+            'changes'            => array_map(static fn (\Webkernel\XMonorepo\Engine\Sync\VersionSyncChange $c): array => [
                 'file'       => $c->file,
                 'package'    => $c->package,
                 'field'      => $c->field,

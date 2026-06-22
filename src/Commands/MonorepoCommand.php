@@ -11,11 +11,6 @@ abstract class MonorepoCommand extends XCommand
 {
     private ?XMonorepo $xMonorepo = null;
 
-    public function __construct(XWebdev $webdev, string $name)
-    {
-        parent::__construct($webdev, $name);
-    }
-
     protected function xMonorepo(): XMonorepo
     {
         if ($this->xMonorepo instanceof XMonorepo) {

@@ -7,7 +7,7 @@ namespace Webkernel\XMonorepo\Engine\Sync;
  */
 final readonly class PackageModuleClassifier
 {
-    private const MODULE_TYPES = [
+    private const array MODULE_TYPES = [
         'webkernel-business-module',
         'webkernel-business-module-feature',
         'webkernel-platform-module',
